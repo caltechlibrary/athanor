@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # DataStagingArea-MediaPreserve-FFV1.sh
-# Version 0.1.0
+# Version 0.1.1
 
 if [ -z "$2" ]; then
     echo -e "\nUSAGE: /bin/bash $0 /path/to/source /path/to/destination\n"
@@ -17,7 +17,7 @@ for directory in *; do
     if [ -f "$directory/${directory}_prsv.mov" ]; then
         mov_calculated_md5=$(md5sum "$directory/${directory}_prsv.mov" | cut -d ' ' -f 1)
         echo "🐞 mov_calculated_md5: $mov_calculated_md5"
-        mov_file_md5=$(cut -d ' ' -f 1 < "$directory/${directory}_prsv.mov.md5")
+        mov_file_md5=$(cut -d ' ' -f 1 < "$directory/${directory}_prsv.mov.md5" | tr '[:upper:]' '[:lower:]')
         echo "🐞 mov_file_md5: $mov_file_md5"
         if ! [ "$mov_calculated_md5" == "$mov_file_md5" ]; then
             echo -e "\n❌ MD5 MISMATCH"
