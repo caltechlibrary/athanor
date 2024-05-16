@@ -1,5 +1,5 @@
 # DataStagingArea-MediaPreserve-FFV1.py
-# Version 0.3.1
+# Version 0.3.2
 
 import argparse
 import os
@@ -123,9 +123,9 @@ for entry in os.scandir(args.source):
             exit(1)
         else:
             print("\n✅ MD5 STREAM MATCH")
-            print(f"{item.name}:        {calculated_md5_mov_stream}")
+            print(f"{item.name} (stream):\t{calculated_md5_mov_stream}")
             print(
-                f"{item.name.replace('.mov', '.stream.md5')}:    {calculated_md5_mkv_stream}"
+                f"{item.name.replace('.mov', '.mkv')} (stream):\t{calculated_md5_mkv_stream}"
             )
             with open(f"{item.path.replace('.mov', '.stream.md5')}", "w") as f:
                 f.write(calculated_md5_mkv_stream)
