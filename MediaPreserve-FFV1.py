@@ -181,8 +181,7 @@ for entry in os.scandir(args.source):
         shutil.copytree(
             entry.path,
             os.path.join(args.destination, entry.name),
-            ignore=shutil.ignore_patterns("*.mov*"),
-            ignore=shutil.ignore_patterns("*.mp4*"),
+            ignore=shutil.ignore_patterns("*.mov*", "*.mp4*")
         )
         os.remove(f"{entry.path}/{entry.name}_prsv.mkv")
         os.remove(f"{entry.path}/{entry.name}_prsv.mkv.md")
