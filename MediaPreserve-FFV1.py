@@ -1,5 +1,5 @@
-# DataStagingArea-MediaPreserve-FFV1.py
-# Version 0.4.0
+# MediaPreserve-FFV1.py
+# Version 0.5.0
 
 import argparse
 import os
@@ -23,31 +23,33 @@ for entry in os.scandir(args.source):
         continue
     print(f"🙃 {entry.name}")
     for item in os.scandir(entry.path):
-        if item.name != f"{entry.name}_prsv.mov":
+        # some source files are named like *_prsv.mov
+        # some source files are named like *_UncompressedMOV.mov
+        if not item.name.endswith(".mov"):
             continue
-        with open(f"{item.path.replace('.mov', '.mkv.md')}", "w") as f:
+        with open(f"{entry.path}/{entry.name}_prsv.mkv.md", "w") as f:
             f.write(
-                "# TRANSCODING LOG\n\nThese were the steps used to convert the original v210/MOV file to a lossless FFV1/MKV file.\n\n"
+                "# TRANSCODING LOG\n\nThese were the steps used to convert the source MOV file to a lossless FFV1/MKV file.\n\n"
             )
         """Start 3 of 4 long-running processes at the same time in the background."""
-        # calculate MD5 of *_prsv.mov file
-        print(f"⏳ calculating *_prsv.mov file MD5 in the background")
+        # calculate MD5 of *.mov file
+        print(f"⏳ calculating source *.mov file MD5 in the background")
         calculating_md5_mov_file = subprocess.Popen(
             ["md5sum", item.path],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
         )
-        # calculate MD5 of *_prsv.mov audio/video streams
-        print(f"⏳ calculating *_prsv.mov streamhash as MD5 in the background")
+        # calculate MD5 of *.mov audio/video streams
+        print(f"⏳ calculating source *.mov streamhash as MD5 in the background")
         calculating_md5_mov_streams = subprocess.Popen(
             [FFMPEG_CMD, "-i", item.path, "-f", "streamhash", "-hash", "md5", "-"],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
         )
-        # transcode *_prsv.mov to *_prsv.mkv
-        print(f"⏳ transcoding *_prsv.mov to *_prsv.mkv in the background")
+        # transcode *.mov to *_prsv.mkv
+        print(f"⏳ transcoding source *.mov to *_prsv.mkv in the background")
         transcode = subprocess.Popen(
             [
                 FFMPEG_CMD,
@@ -70,7 +72,7 @@ for entry in os.scandir(args.source):
                 "4",
                 "-c:a",
                 "copy",
-                f"{item.path.replace('.mov', '.mkv')}",
+                f"{entry.path}/{entry.name}_prsv.mkv",
             ],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -78,9 +80,9 @@ for entry in os.scandir(args.source):
         )
         with open(f"{item.path}.md5") as f:
             saved_md5_mov_file = f.read().split()[0].lower()
-        # wait for *_prsv.mov file MD5 calculation to complete
+        # wait for *.mov file MD5 calculation to complete
         calculated_md5_mov_file = calculating_md5_mov_file.communicate()[0].split()[0]
-        # compare calculated MD5 of *_prsv.mov file with saved MD5 checksum file
+        # compare calculated MD5 of *.mov file with saved MD5 checksum file
         if calculated_md5_mov_file != saved_md5_mov_file:
             print("\n❌ MD5 FILE MISMATCH")
             print(f"{item.name}:        {calculated_md5_mov_file}")
@@ -92,9 +94,9 @@ for entry in os.scandir(args.source):
             print("\n✅ MD5 FILE MATCH")
             print(f"{item.name}:        {calculated_md5_mov_file}")
             print(f"{item.name}.md5:    {saved_md5_mov_file}")
-        with open(f"{item.path.replace('.mov', '.mkv.md')}", "a") as f:
+        with open(f"{entry.path}/{entry.name}_prsv.mkv.md", "a") as f:
             f.write(
-                "Calculated the MD5 checksum of the original MOV file and compared it with the saved MD5 checksum.\n\n"
+                "Calculated the MD5 checksum of the source MOV file and compared it with the saved MD5 checksum.\n\n"
             )
             f.write("Calculated MD5:\n")
             f.write(
@@ -113,7 +115,7 @@ for entry in os.scandir(args.source):
             capture_output=True,
             text=True,
         ).stdout.strip()
-        with open(f"{item.path.replace('.mov', '.mkv.md')}", "a") as f:
+        with open(f"{entry.path}/{entry.name}_prsv.mkv.md", "a") as f:
             f.write(f"```\n$ {FFMPEG_CMD} -version\n{print_ffmpeg_version}\n```\n\n")
         # wait for transcode to complete; ffmpeg writes its message output to stderr
         ffmpeg_output = transcode.communicate()[1]
@@ -122,17 +124,17 @@ for entry in os.scandir(args.source):
             print(ffmpeg_output)
             calculating_md5_mov_streams.terminate()
             exit(1)
-        with open(f"{item.path.replace('.mov', '.mkv.md')}", "a") as f:
+        with open(f"{entry.path}/{entry.name}_prsv.mkv.md", "a") as f:
             f.write("FFmpeg output.\n")
             f.write(
-                f"```\n$ {FFMPEG_CMD} -hide_banner -nostats -i {item.name} -map 0 -dn -c:v ffv1 -level 3 -g 1 -slicecrc 1 -slices 4 -c:a copy {item.name.replace('.mov', '.mkv')}\n{ffmpeg_output}\n```\n\n"
+                f"```\n$ {FFMPEG_CMD} -hide_banner -nostats -i {item.name} -map 0 -dn -c:v ffv1 -level 3 -g 1 -slicecrc 1 -slices 4 -c:a copy {entry.name}_prsv.mkv\n{ffmpeg_output}\n```\n\n"
             )
         # calculate MD5 hashes of *_prsv.mkv audio/video streams
         calculated_md5_mkv_streams = subprocess.run(
             [
                 FFMPEG_CMD,
                 "-i",
-                f"{item.path.replace('.mov', '.mkv')}",
+                f"{entry.path}/{entry.name}_prsv.mkv",
                 "-f",
                 "streamhash",
                 "-hash",
@@ -142,29 +144,29 @@ for entry in os.scandir(args.source):
             capture_output=True,
             text=True,
         ).stdout.strip()
-        # wait for *_prsv.mov streamhash MD5 calculation to complete
+        # wait for *.mov streamhash MD5 calculation to complete
         calculated_md5_mov_streams = calculating_md5_mov_streams.communicate()[
             0
         ].strip()
-        # compare MD5 hashes of *_prsv.mov audio/video streams with MD5 hashes of *_prsv.mkv audio/video streams
+        # compare MD5 hashes of *.mov audio/video streams with MD5 hashes of *_prsv.mkv audio/video streams
         if calculated_md5_mov_streams != calculated_md5_mkv_streams:
             print("\n❌ MD5 STREAM MISMATCH")
             print(f"{item.name}:\n{calculated_md5_mov_streams}")
             print(
-                f"{item.name.replace('.mov', '.streamhashmd5')}:\n{calculated_md5_mkv_streams}"
+                f"{entry.name}_prsv.streamhashmd5:\n{calculated_md5_mkv_streams}"
             )
             exit(1)
         else:
             print("\n✅ MD5 STREAM MATCH")
             print(f"{item.name} (streams):\n{calculated_md5_mov_streams}")
             print(
-                f"{item.name.replace('.mov', '.mkv')} (streams):\n{calculated_md5_mkv_streams}"
+                f"{entry.name}_prsv.mkv (streams):\n{calculated_md5_mkv_streams}"
             )
-            with open(f"{item.path.replace('.mov', '.streamhashmd5')}", "w") as f:
+            with open(f"{entry.path}/{entry.name}_prsv.streamhashmd5", "w") as f:
                 f.write(calculated_md5_mkv_streams)
-        with open(f"{item.path.replace('.mov', '.mkv.md')}", "a") as f:
+        with open(f"{entry.path}/{entry.name}_prsv.mkv.md", "a") as f:
             f.write(
-                "Compared the calculated MD5 stream hashes from the original MOV file with those from the transcoded MKV file. Future stream hash calculations must use the same or a compatible version of FFmpeg, otherwise the output will differ.\n\n"
+                "Compared the calculated MD5 stream hashes from the source MOV file with those from the transcoded MKV file. Future stream hash calculations must use the same or a compatible version of FFmpeg, otherwise the output will differ.\n\n"
             )
             f.write("MOV stream hashes:\n")
             f.write(
@@ -172,16 +174,17 @@ for entry in os.scandir(args.source):
             )
             f.write("MKV stream hashes:\n")
             f.write(
-                f"```\n$ {FFMPEG_CMD} -i {item.name.replace('.mov', '.mkv')} -f streamhash -hash md5 -\n{calculated_md5_mkv_streams}\n```\n\n"
+                f"```\n$ {FFMPEG_CMD} -i {entry.name}_prsv.mkv -f streamhash -hash md5 -\n{calculated_md5_mkv_streams}\n```\n\n"
             )
-        # copy everything except *_prsv.mov and *_prsv.mov.md5 to destination
+        # copy everything to destination with exceptions
         print(f"\n⏳ moving files to destination")
         shutil.copytree(
             entry.path,
             os.path.join(args.destination, entry.name),
-            ignore=shutil.ignore_patterns("*_prsv.mov*"),
+            ignore=shutil.ignore_patterns("*.mov*"),
+            ignore=shutil.ignore_patterns("*.mp4*"),
         )
-        os.remove(item.path.replace(".mov", ".mkv"))
-        os.remove(item.path.replace(".mov", ".mkv.md"))
-        os.remove(item.path.replace(".mov", ".streamhashmd5"))
+        os.remove(f"{entry.path}/{entry.name}_prsv.mkv")
+        os.remove(f"{entry.path}/{entry.name}_prsv.mkv.md")
+        os.remove(f"{entry.path}/{entry.name}_prsv.streamhashmd5")
         print("\n✅ DONE")
