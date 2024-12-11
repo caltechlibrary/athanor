@@ -1,5 +1,5 @@
 # MediaPreserve-FFV1.py
-# Version 0.5.1
+# Version 0.6.0
 
 import argparse
 import os
@@ -19,9 +19,51 @@ parser.add_argument(
 args = parser.parse_args()
 
 FFMPEG_CMD = "/home/linuxbrew/.linuxbrew/bin/ffmpeg"
+FFPROBE_CMD = "/home/linuxbrew/.linuxbrew/bin/ffprobe"
 
 mov_paths = list(Path(args.source).glob("**/*.mov"))
 for p in sorted(mov_paths, key=lambda x: x.stat().st_size):
+    video_stream_count = len(
+        subprocess.run(
+            [
+                FFPROBE_CMD,
+                "-v",
+                "error",
+                "-select_streams",
+                "v",
+                "-show_entries",
+                "stream=index",
+                "-of",
+                "csv=p=0",
+                p.as_posix(),
+            ],
+            capture_output=True,
+            text=True,
+        ).stdout.split()
+    )
+    if video_stream_count > 1:
+        continue
+    audio_stream_count = len(
+        subprocess.run(
+            [
+                FFPROBE_CMD,
+                "-v",
+                "error",
+                "-select_streams",
+                "a",
+                "-show_entries",
+                "stream=index",
+                "-of",
+                "csv=p=0",
+                p.as_posix(),
+            ],
+            capture_output=True,
+            text=True,
+        ).stdout.split()
+    )
+    if audio_stream_count > 1:
+        continue
+    print(f"📁 {p.parent.name}")
     with open(f"{p.parent}/{p.parent.name}_prsv.mkv.md", "w") as f:
         f.write(
             "# TRANSCODING LOG\n\nThese were the steps used to convert the source MOV file to a lossless FFV1/MKV file.\n\n"
