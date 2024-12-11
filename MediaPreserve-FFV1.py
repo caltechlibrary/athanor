@@ -1,5 +1,5 @@
 # MediaPreserve-FFV1.py
-# Version 0.6.0
+# Version 0.6.1
 
 import argparse
 import os
@@ -63,7 +63,7 @@ for p in sorted(mov_paths, key=lambda x: x.stat().st_size):
     )
     if audio_stream_count > 1:
         continue
-    print(f"📁 {p.parent.name}")
+    print(f"\n📁 {p.parent.name}")
     with open(f"{p.parent}/{p.parent.name}_prsv.mkv.md", "w") as f:
         f.write(
             "# TRANSCODING LOG\n\nThese were the steps used to convert the source MOV file to a lossless FFV1/MKV file.\n\n"
