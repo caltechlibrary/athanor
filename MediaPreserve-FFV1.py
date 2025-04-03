@@ -1,5 +1,5 @@
 # MediaPreserve-FFV1.py
-# Version 1.0.0
+# Version 1.1.0
 
 import argparse
 import datetime
@@ -49,6 +49,25 @@ def main(p: Path):
         ).stdout.split()
     )
     print(f"🎧 {p.name} contains {audio_stream_count} audio streams")
+    subtitle_stream_count = len(
+        subprocess.run(
+            [
+                FFPROBE_CMD,
+                "-v",
+                "error",
+                "-select_streams",
+                "s",
+                "-show_entries",
+                "stream=index",
+                "-of",
+                "csv=p=0",
+                p.as_posix(),
+            ],
+            capture_output=True,
+            text=True,
+        ).stdout.split()
+    )
+    print(f"🔇 {p.name} contains {subtitle_stream_count} subtitle streams")
     with open(f"{p.parent}/{p.parent.name}_prsv.mkv.md", "w") as f:
         f.write(
             "# TRANSCODING LOG\n\nThese were the steps used to convert the source MOV file to a lossless FFV1/MKV file.\n\n"
@@ -62,6 +81,42 @@ def main(p: Path):
         stderr=subprocess.PIPE,
         text=True,
     )
+    # determine if first subtitle stream has content
+    if subtitle_stream_count > 0:
+        print(f"⏳ checking for subtitle streams with content in the background")
+        captured_subtitle_stream = subprocess.run(
+            [
+                FFMPEG_CMD,
+                "-f",
+                "lavfi",
+                "-i",
+                f"movie={p.as_posix()}[out+subcc]",
+                "-map",
+                "0:s:0",
+                "-c:s",
+                "srt",
+                "-f",
+                "srt",
+                "-",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        if captured_subtitle_stream.stdout == "":
+            print("🔇 subtitle stream has no content")
+            # set up option to skip transcoding subtitle streams
+            skip_subtitle_streams = True
+        else:
+            print("🔇 subtitle stream has content")
+            skip_subtitle_streams = False
+    elif subtitle_stream_count > 1:
+        print("🔇 multiple subtitle streams detected WE ONLY CHECKED THE FIRST ONE")
+        # set up option to skip transcoding subtitle streams
+        skip_subtitle_streams = True
+    else:
+        # set up option to skip transcoding subtitle streams
+        skip_subtitle_streams = True
     # calculate MD5 of *.mov audio/video streams
     print(f"⏳ calculating source *.mov streamhash as MD5 in the background")
     calculating_md5_mov_streams = subprocess.Popen(
@@ -72,30 +127,33 @@ def main(p: Path):
     )
     # transcode *.mov to *_prsv.mkv
     print(f"⏳ transcoding source *.mov to *_prsv.mkv in the background")
+    transcode_cmd = [
+        FFMPEG_CMD,
+        "-hide_banner",
+        "-nostats",
+        "-i",
+        p.as_posix(),
+        "-map",
+        "0",
+        "-c:v",
+        "ffv1",
+        "-level",
+        "3",
+        "-g",
+        "1",
+        "-slicecrc",
+        "1",
+        "-slices",
+        "4",
+        "-c:a",
+        "copy",
+        "-dn",  # Only audio, video, and subtitles are supported for Matroska.
+    ]
+    if skip_subtitle_streams:
+        transcode_cmd.append("-sn")
+    transcode_cmd.append(f"{p.parent}/{p.parent.name}_prsv.mkv")
     transcode = subprocess.Popen(
-        [
-            FFMPEG_CMD,
-            "-hide_banner",
-            "-nostats",
-            "-i",
-            p.as_posix(),
-            "-map",
-            "0",
-            "-dn",
-            "-c:v",
-            "ffv1",
-            "-level",
-            "3",
-            "-g",
-            "1",
-            "-slicecrc",
-            "1",
-            "-slices",
-            "4",
-            "-c:a",
-            "copy",
-            f"{p.parent}/{p.parent.name}_prsv.mkv",
-        ],
+        transcode_cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
