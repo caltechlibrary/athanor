@@ -13,6 +13,8 @@ import threading
 from pathlib import Path
 
 class Spinner:
+    # https://stackoverflow.com/a/57974583
+
     __default_spinner_symbols_list = ['.    ', '..   ', '...  ', '.... ', '.....', ' ....', '  ...', '   ..', '    .', '     ']
 
     # needed for Python < 3.9
