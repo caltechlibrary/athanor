@@ -1,5 +1,5 @@
 # MediaPreserve-FFV1.py
-# Version 1.1.0
+# Version 1.2.0
 
 import argparse
 import datetime
@@ -15,6 +15,7 @@ from pathlib import Path
 class Spinner:
     __default_spinner_symbols_list = ['.    ', '..   ', '...  ', '.... ', '.....', ' ....', '  ...', '   ..', '    .', '     ']
 
+    # needed for Python < 3.9
     from typing import List
 
     def __init__(self, spinner_symbols_list: List[str] = None):
