@@ -1,16 +1,41 @@
 # MOV-to-FFV1.py
-# Version 1.2.2
+# Version 1.3.0
 
 import argparse
+import atexit
 import datetime
 import itertools
 import shutil
+import signal
 import subprocess
 import sys
 import time
 import threading
 
 from pathlib import Path
+
+# Global list to track background processes
+background_processes = []
+
+def cleanup_processes():
+    """Terminate all background processes when script exits."""
+    for process in background_processes:
+        if process and process.poll() is None:  # Check if process is still running
+            try:
+                process.terminate()
+                process.wait(timeout=5)  # Wait up to 5 seconds for process to terminate
+            except subprocess.TimeoutExpired:
+                process.kill()  # Force kill if process doesn't terminate gracefully
+
+def signal_handler(signum, frame):
+    """Handle termination signals."""
+    cleanup_processes()
+    sys.exit(1)
+
+# Register cleanup function and signal handlers
+atexit.register(cleanup_processes)
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
 
 class Spinner:
     # https://stackoverflow.com/a/57974583
@@ -127,6 +152,7 @@ def main(p: Path):
         stderr=subprocess.PIPE,
         text=True,
     )
+    background_processes.append(calculating_md5_mov_file)
     # determine if first subtitle stream has content
     if subtitle_stream_count > 0:
         print(f"⏳ checking for subtitle streams with content in the background")
@@ -171,6 +197,7 @@ def main(p: Path):
         stderr=subprocess.PIPE,
         text=True,
     )
+    background_processes.append(calculating_md5_mov_streams)
     # transcode *.mov to *_prsv.mkv
     print(f"⏳ transcoding source *.mov to *_prsv.mkv in the background")
     transcode_cmd = [
@@ -204,6 +231,7 @@ def main(p: Path):
         stderr=subprocess.PIPE,
         text=True,
     )
+    background_processes.append(transcode)
     with open(f"{p.as_posix()}.md5", "w") as f:
         saved_md5_mov_file = f.read().split()[0].lower()
     # wait for *.mov file MD5 calculation to complete
