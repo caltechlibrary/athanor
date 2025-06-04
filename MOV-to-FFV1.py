@@ -1,4 +1,4 @@
-# MediaPreserve-FFV1.py
+# MOV-to-FFV1.py
 # Version 1.2.0
 
 import argparse
