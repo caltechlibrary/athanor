@@ -1,5 +1,5 @@
 # MOV-to-FFV1.py
-# Version 1.2.0
+# Version 1.2.1
 
 import argparse
 import datetime
@@ -344,7 +344,7 @@ if __name__ == "__main__":
         "--level", choices=["parent", "object"], help="'parent' if src contains many items, 'object' if src is a direct path to one item", required=True
     )
     parser.add_argument(
-        "--src", help="path to the source directory", required=True
+        "--src", help="path to the source parent (directory) or object (file)", required=True
     )
     parser.add_argument(
         "--dst", help="path to the destination directory", required=True
