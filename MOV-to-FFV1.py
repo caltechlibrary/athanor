@@ -1,5 +1,5 @@
 # MOV-to-FFV1.py
-# Version 1.3.1
+# Version 1.4.0
 
 import argparse
 import atexit
@@ -142,17 +142,18 @@ def main(p: Path):
         f.write(
             "# TRANSCODING LOG\n\nThese were the steps used to convert the source MOV file to a lossless FFV1/MKV file.\n\n"
         )
-    """Start 3 of 4 long-running processes at the same time in the background."""
-    # calculate MD5 of *.mov file
+    """Start long-running processes at the same time in the background."""
     print("\n")
-    print(f"⏳ calculating source *.mov file MD5 in the background")
-    calculating_md5_mov_file = subprocess.Popen(
-        ["md5sum", p.as_posix()],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
-    background_processes.append(calculating_md5_mov_file)
+    if Path(f"{p.as_posix()}.md5").exists():
+        # calculate MD5 of *.mov file if a comparison file exists
+        print(f"⏳ calculating source *.mov file MD5 in the background")
+        calculating_md5_mov_file = subprocess.Popen(
+            ["md5sum", p.as_posix()],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        background_processes.append(calculating_md5_mov_file)
     # determine if first subtitle stream has content
     if subtitle_stream_count > 0:
         print(f"⏳ checking for subtitle streams with content in the background")
@@ -232,32 +233,34 @@ def main(p: Path):
         text=True,
     )
     background_processes.append(transcode)
-    with open(f"{p.as_posix()}.md5", "w") as f:
-        saved_md5_mov_file = f.read().split()[0].lower()
-    # wait for *.mov file MD5 calculation to complete
-    print("\n")
-    spinner = Spinner()
-    spinner.start("🤼 WAITING FOR MD5 COMPARISON TO COMPLETE")
-    calculated_md5_mov_file = calculating_md5_mov_file.communicate()[0].split()[0]
-    spinner.stop()
-    # compare calculated MD5 of *.mov file with saved MD5 checksum file
-    print(f"{p.name}:        {calculated_md5_mov_file}")
-    print(f"{p.name}.md5:    {saved_md5_mov_file}")
-    if calculated_md5_mov_file != saved_md5_mov_file:
-        print("❌ MD5 FILE MISMATCH")
-        transcode.terminate()
-        calculating_md5_mov_streams.terminate()
-        exit(1)
-    else:
-        print("✅ MD5 FILE MATCH")
+    if Path(f"{p.as_posix()}.md5").exists():
+        with open(f"{p.as_posix()}.md5") as f:
+            saved_md5_mov_file = f.read().split()[0].lower()
+        # wait for *.mov file MD5 calculation to complete
+        print("\n")
+        spinner = Spinner()
+        spinner.start("🤼 WAITING FOR MD5 COMPARISON TO COMPLETE")
+        calculated_md5_mov_file = calculating_md5_mov_file.communicate()[0].split()[0]
+        spinner.stop()
+        # compare calculated MD5 of *.mov file with saved MD5 checksum file
+        print(f"{p.name}:        {calculated_md5_mov_file}")
+        print(f"{p.name}.md5:    {saved_md5_mov_file}")
+        if calculated_md5_mov_file != saved_md5_mov_file:
+            print("❌ MD5 FILE MISMATCH")
+            transcode.terminate()
+            calculating_md5_mov_streams.terminate()
+            exit(1)
+        else:
+            print("✅ MD5 FILE MATCH")
+        with open(f"{p.parent}/{p.parent.name}_prsv.mkv.md", "a") as f:
+            f.write(
+                "Calculated the MD5 checksum of the source MOV file and compared it with the saved MD5 checksum.\n\n"
+            )
+            f.write("Calculated MD5:\n")
+            f.write(f"```\n$ md5sum {p.name}\n{calculated_md5_mov_file}  {p.name}\n```\n\n")
+            f.write("Saved MD5:\n")
+            f.write(f"```\n$ cat {p.name}.md5\n{saved_md5_mov_file}  {p.name}.md5\n```\n\n")
     with open(f"{p.parent}/{p.parent.name}_prsv.mkv.md", "a") as f:
-        f.write(
-            "Calculated the MD5 checksum of the source MOV file and compared it with the saved MD5 checksum.\n\n"
-        )
-        f.write("Calculated MD5:\n")
-        f.write(f"```\n$ md5sum {p.name}\n{calculated_md5_mov_file}  {p.name}\n```\n\n")
-        f.write("Saved MD5:\n")
-        f.write(f"```\n$ cat {p.name}.md5\n{saved_md5_mov_file}  {p.name}.md5\n```\n\n")
         f.write("FFmpeg version used to transcode the file.\n")
     print_ffmpeg_version = subprocess.run(
         [
