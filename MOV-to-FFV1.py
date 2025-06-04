@@ -1,5 +1,5 @@
 # MOV-to-FFV1.py
-# Version 1.2.1
+# Version 1.2.2
 
 import argparse
 import datetime
@@ -204,7 +204,7 @@ def main(p: Path):
         stderr=subprocess.PIPE,
         text=True,
     )
-    with open(f"{p.as_posix()}.md5") as f:
+    with open(f"{p.as_posix()}.md5", "w") as f:
         saved_md5_mov_file = f.read().split()[0].lower()
     # wait for *.mov file MD5 calculation to complete
     print("\n")
