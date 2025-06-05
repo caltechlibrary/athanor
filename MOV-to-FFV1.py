@@ -15,34 +15,44 @@ import os
 
 from pathlib import Path
 
-# Global list to track background processes
-background_processes = []
+def auto_cleanup_processes(func):
+    """Decorator that ensures subprocess cleanup on exit"""
+    processes = []
 
-def cleanup_processes():
-    """Terminate all background processes when script exits."""
-    # Ensure we're on a new line before cleanup
-    print()
+    def cleanup():
+        for proc in processes:
+            if proc.poll() is None:
+                try:
+                    proc.terminate()
+                    proc.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait()
+                except (ProcessLookupError, OSError):
+                    pass
 
-    for process in background_processes:
-        if process and process.poll() is None:  # Check if process is still running
-            try:
-                process.terminate()
-                process.wait(timeout=5)  # Wait up to 5 seconds for process to terminate
-            except subprocess.TimeoutExpired:
-                process.kill()  # Force kill if process doesn't terminate gracefully
+    def patched_popen(*args, **kwargs):
+        # Patch subprocess.Popen to track processes
+        proc = subprocess.Popen(*args, **kwargs)
+        processes.append(proc)
+        return proc
 
-    # Ensure we're on a new line after cleanup
-    print()
+    def wrapper(*args, **kwargs):
+        # Setup cleanup
+        atexit.register(cleanup)
+        signal.signal(signal.SIGINT, lambda s, f: (cleanup(), exit(0)))
 
-def signal_handler(signum, frame):
-    """Handle termination signals."""
-    cleanup_processes()
-    sys.exit(1)
+        # Monkey patch Popen
+        original_popen = subprocess.Popen
+        subprocess.Popen = patched_popen
 
-# Register cleanup function and signal handlers
-atexit.register(cleanup_processes)
-signal.signal(signal.SIGINT, signal_handler)
-signal.signal(signal.SIGTERM, signal_handler)
+        try:
+            return func(*args, **kwargs)
+        finally:
+            subprocess.Popen = original_popen  # Restore original
+            cleanup()
+
+    return wrapper
 
 class Spinner:
     def __init__(self, message="Processing"):
@@ -84,6 +94,7 @@ def wait_with_progress(message, process):
         spinner.stop()
         print("Done!")
 
+@auto_cleanup_processes
 def main(p: Path):
     print(f"\n📂 {p.parent.name}")
     video_stream_count = len(
@@ -158,7 +169,6 @@ def main(p: Path):
             stderr=subprocess.PIPE,
             text=True,
         )
-        background_processes.append(calculating_md5_mov_file)
     # determine if first subtitle stream has content
     if subtitle_stream_count > 0:
         print(f"⏳ checking for subtitle streams with content in the background")
@@ -203,7 +213,6 @@ def main(p: Path):
         stderr=subprocess.PIPE,
         text=True,
     )
-    background_processes.append(calculating_md5_mov_streams)
     # transcode *.mov to *--FFV1.mkv
     print(f"⏳ transcoding source *.mov to *--FFV1.mkv in the background")
     transcode_cmd = [
@@ -237,7 +246,6 @@ def main(p: Path):
         stderr=subprocess.PIPE,
         text=True,
     )
-    background_processes.append(transcode)
     if Path(f"{p.as_posix()}.md5").exists():
         with open(f"{p.as_posix()}.md5") as f:
             saved_md5_mov_file = f.read().split()[0].lower()
