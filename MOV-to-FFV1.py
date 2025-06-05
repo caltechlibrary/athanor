@@ -1,14 +1,109 @@
 # MOV-to-FFV1.py
-# Version 1.4.0
+# Version 1.🐞.🐞 original spinner, cleanup decorator, main() return, wait(), restore_tty()
 
 import argparse
+import atexit
 import datetime
+import itertools
 import shutil
+import signal
 import subprocess
 import sys
+import time
+import threading
 
 from pathlib import Path
 
+def restore_tty():
+    subprocess.run(['stty','sane'])
+
+atexit.register(restore_tty)
+
+def auto_cleanup_processes(func):
+    """Decorator that ensures subprocess cleanup on exit"""
+    processes = []
+    original_popen = None  # Declare in outer scope
+
+    def cleanup():
+        for proc in processes:
+            if proc.poll() is None:
+                try:
+                    proc.terminate()
+                    proc.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait()
+                except (ProcessLookupError, OSError):
+                    pass
+
+    def patched_popen(*args, **kwargs):
+        # Use the original Popen to avoid recursion
+        proc = original_popen(*args, **kwargs)
+        processes.append(proc)
+        return proc
+
+    def wrapper(*args, **kwargs):
+        # Setup cleanup
+        atexit.register(cleanup)
+        signal.signal(signal.SIGINT, lambda s, f: (cleanup(), exit(0)))
+
+        # Store original Popen and patch it
+        nonlocal original_popen
+        original_popen = subprocess.Popen
+        subprocess.Popen = patched_popen
+
+        try:
+            return func(*args, **kwargs)
+        finally:
+            subprocess.Popen = original_popen  # Restore original
+            cleanup()
+
+    return wrapper
+
+
+class Spinner:
+    # https://stackoverflow.com/a/57974583
+
+    __default_spinner_symbols_list = ['.    ', '..   ', '...  ', '.... ', '.....', ' ....', '  ...', '   ..', '    .', '     ']
+
+    # needed for Python < 3.9
+    from typing import List
+
+    def __init__(self, spinner_symbols_list: List[str] = None):
+        spinner_symbols_list = spinner_symbols_list if spinner_symbols_list else Spinner.__default_spinner_symbols_list
+        self.__screen_lock = threading.Event()
+        self.__spinner = itertools.cycle(spinner_symbols_list)
+        self.__stop_event = False
+        self.__thread = None
+
+    def get_spin(self):
+        return self.__spinner
+
+    def start(self, spinner_message: str):
+        self.__stop_event = False
+        time.sleep(0.3)
+
+        def run_spinner(message):
+            while not self.__stop_event:
+                print("\r{message} {spinner}".format(message=message, spinner=next(self.__spinner)), end="")
+                time.sleep(0.3)
+
+            self.__screen_lock.set()
+
+        self.__thread = threading.Thread(target=run_spinner, args=(spinner_message,), daemon=True)
+        self.__thread.start()
+
+    def stop(self):
+        self.__stop_event = True
+        if self.__screen_lock.is_set():
+            self.__screen_lock.wait()
+            self.__screen_lock.clear()
+            print("\r", end="")
+
+        print()
+
+
+@auto_cleanup_processes
 def main(p: Path):
     print(f"\n📂 {p.parent.name}")
     video_stream_count = len(
@@ -164,15 +259,19 @@ def main(p: Path):
         with open(f"{p.as_posix()}.md5") as f:
             saved_md5_mov_file = f.read().split()[0].lower()
         # wait for *.mov file MD5 calculation to complete
-        print("\n🤼 MD5 COMPARISON...")
+        spinner = Spinner()
+        spinner.start("🤼 WAITING FOR MD5 COMPARISON TO COMPLETE")
         calculated_md5_mov_file = calculating_md5_mov_file.communicate()[0].split()[0]
+        spinner.stop()
         # compare calculated MD5 of *.mov file with saved MD5 checksum file
         print(f"{p.name}:        {calculated_md5_mov_file}")
         print(f"{p.name}.md5:    {saved_md5_mov_file}")
         if calculated_md5_mov_file != saved_md5_mov_file:
             print("❌ MD5 FILE MISMATCH")
             transcode.terminate()
+            transcode.wait()
             calculating_md5_mov_streams.terminate()
+            calculating_md5_mov_streams.wait()
             exit(1)
         else:
             print("✅ MD5 FILE MATCH")
@@ -197,12 +296,15 @@ def main(p: Path):
     with open(f"{p.parent}/{p.stem}--FFV1.mkv.md", "a") as f:
         f.write(f"```\n$ {FFMPEG_CMD} -version\n{print_ffmpeg_version}\n```\n\n")
     # wait for transcode to complete; ffmpeg writes its message output to stderr
-    print("\n🤼 MD5 COMPARISON...")
+    spinner = Spinner()
+    spinner.start("⏳ WAITING FOR TRANSCODING TO COMPLETE")
     ffmpeg_output = transcode.communicate()[1]
+    spinner.stop()
     if transcode.returncode != 0:
         print("\n❌ FFMPEG TRANSCODE FAILED")
         print(ffmpeg_output)
         calculating_md5_mov_streams.terminate()
+        calculating_md5_mov_streams.wait()
         with open(Path(args.dst).joinpath(f"{p.stem}--ERROR.md"), "w") as f:
             f.write(f"# ❌ FFMPEG TRANSCODE FAILED\n\n```\n{ffmpeg_output}\n```\n")
         return
@@ -235,7 +337,10 @@ def main(p: Path):
         text=True,
     ).stdout.strip()
     # wait for *--FFV1.mkv file MD5 calculation to complete
+    spinner = Spinner()
+    spinner.start("🤼 WAITING FOR MD5 COMPARISON TO COMPLETE")
     calculated_md5_mkv_file = calculating_md5_mkv_file.communicate()[0].split()[0]
+    spinner.stop()
     with open(f"{p.parent}/{p.stem}--FFV1.mkv.md", "a") as f:
         f.write(
             "Calculated the MD5 checksum of the transcoded MKV file.\n\n"
@@ -245,8 +350,10 @@ def main(p: Path):
     with open(f"{p.parent}/{p.stem}--FFV1.mkv.md5", "w") as f:
         f.write(calculated_md5_mkv_file)
     # wait for *.mov streamhash MD5 calculation to complete
-    print("\n🤼 MD5 COMPARISON...")
+    spinner = Spinner()
+    spinner.start("🤼 WAITING FOR MD5 COMPARISON TO COMPLETE")
     calculated_md5_mov_streams = calculating_md5_mov_streams.communicate()[0].strip()
+    spinner.stop()
     # compare MD5 hashes of *.mov audio/video streams with MD5 hashes of *--FFV1.mkv audio/video streams
     print(f"{p.name} (streams):\n{calculated_md5_mov_streams}")
     print(f"{p.stem}--FFV1.mkv (streams):\n{calculated_md5_mkv_streams}")
@@ -268,7 +375,8 @@ def main(p: Path):
             f"```\n$ {FFMPEG_CMD} -i {p.stem}--FFV1.mkv -f streamhash -hash md5 -\n{calculated_md5_mkv_streams}\n```\n\n"
         )
     # copy everything to destination with exceptions
-    print(f"\n⏳ moving files to destination")
+    spinner = Spinner()
+    spinner.start("⏳ WAITING FOR FILE MOVE TO COMPLETE")
     # using copytree in case we cross file system boundaries
     shutil.copytree(
         p.parent.as_posix(),
@@ -278,6 +386,7 @@ def main(p: Path):
     p.parent.joinpath(f"{p.stem}--FFV1.mkv").unlink()
     p.parent.joinpath(f"{p.stem}--FFV1.mkv.md").unlink()
     p.parent.joinpath(f"{p.stem}--FFV1.mkv.md5").unlink()
+    spinner.stop()
     print("\n✅ DONE\n")
     return
 
@@ -321,8 +430,7 @@ if __name__ == "__main__":
     # MOVE SOURCE FILES TO BATCHES DIRECTORY
     if args.level == "parent":
         for src_item in Path(args.src).iterdir():
-            if src_item.is_dir():
-                shutil.move(src_item.as_posix(), BATCHES_DIRECTORY.as_posix())
+            shutil.move(src_item.as_posix(), BATCHES_DIRECTORY.as_posix())
     elif args.level == "object":
         shutil.move(args.src, BATCHES_DIRECTORY.as_posix())
     else:
