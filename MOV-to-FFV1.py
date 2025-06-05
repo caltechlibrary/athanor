@@ -18,6 +18,7 @@ from pathlib import Path
 def auto_cleanup_processes(func):
     """Decorator that ensures subprocess cleanup on exit"""
     processes = []
+    original_popen = None  # Declare in outer scope
 
     def cleanup():
         for proc in processes:
