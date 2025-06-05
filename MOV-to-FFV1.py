@@ -11,11 +11,27 @@ import subprocess
 import sys
 import time
 import threading
+import tty
+import termios
+import os
 
 from pathlib import Path
 
 # Global list to track background processes
 background_processes = []
+
+# Store original terminal settings
+original_terminal_settings = None
+
+def save_terminal_settings():
+    """Save the original terminal settings."""
+    global original_terminal_settings
+    original_terminal_settings = termios.tcgetattr(sys.stdin)
+
+def restore_terminal_settings():
+    """Restore the original terminal settings."""
+    if original_terminal_settings:
+        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, original_terminal_settings)
 
 def cleanup_processes():
     """Terminate all background processes when script exits."""
@@ -26,6 +42,7 @@ def cleanup_processes():
                 process.wait(timeout=5)  # Wait up to 5 seconds for process to terminate
             except subprocess.TimeoutExpired:
                 process.kill()  # Force kill if process doesn't terminate gracefully
+    restore_terminal_settings()
 
 def signal_handler(signum, frame):
     """Handle termination signals."""
@@ -39,6 +56,12 @@ signal.signal(signal.SIGTERM, signal_handler)
 
 def wait_with_progress(message, process):
     """Show a message and print dots while waiting for a process to complete."""
+    # Save current terminal settings
+    save_terminal_settings()
+
+    # Set terminal to raw mode
+    tty.setraw(sys.stdin.fileno())
+
     print(f"\n{message}", end="", flush=True)
 
     def print_dots():
@@ -53,9 +76,11 @@ def wait_with_progress(message, process):
     # Wait for the process to complete
     process.wait()
 
-    # Print newline and reset terminal
+    # Print newline
     print("\n", end="", flush=True)
-    sys.stdout.flush()
+
+    # Restore terminal settings
+    restore_terminal_settings()
 
 def main(p: Path):
     print(f"\n📂 {p.parent.name}")
