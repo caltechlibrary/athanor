@@ -96,7 +96,6 @@ def wait_with_progress(message, process):
         spinner.stop()
         print("Done!")
 
-@auto_cleanup_processes
 def main(p: Path):
     print(f"\n📂 {p.parent.name}")
     video_stream_count = len(
