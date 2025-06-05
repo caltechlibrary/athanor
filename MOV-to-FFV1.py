@@ -279,6 +279,7 @@ def main(p: Path):
     p.parent.joinpath(f"{p.stem}--FFV1.mkv.md").unlink()
     p.parent.joinpath(f"{p.stem}--FFV1.mkv.md5").unlink()
     print("\n✅ DONE\n")
+    return
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Preservation Transcoder")
