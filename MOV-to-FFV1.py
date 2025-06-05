@@ -11,27 +11,12 @@ import subprocess
 import sys
 import time
 import threading
-import tty
-import termios
 import os
 
 from pathlib import Path
 
 # Global list to track background processes
 background_processes = []
-
-# Store original terminal settings
-original_terminal_settings = None
-
-def save_terminal_settings():
-    """Save the original terminal settings."""
-    global original_terminal_settings
-    original_terminal_settings = termios.tcgetattr(sys.stdin)
-
-def restore_terminal_settings():
-    """Restore the original terminal settings."""
-    if original_terminal_settings:
-        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, original_terminal_settings)
 
 def cleanup_processes():
     """Terminate all background processes when script exits."""
@@ -42,7 +27,6 @@ def cleanup_processes():
                 process.wait(timeout=5)  # Wait up to 5 seconds for process to terminate
             except subprocess.TimeoutExpired:
                 process.kill()  # Force kill if process doesn't terminate gracefully
-    restore_terminal_settings()
 
 def signal_handler(signum, frame):
     """Handle termination signals."""
@@ -54,33 +38,43 @@ atexit.register(cleanup_processes)
 signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
 
+class Spinner:
+    def __init__(self, message="Processing"):
+        self.spinner_chars = "|/-\\"
+        self.message = message
+        self.running = False
+        self.thread = None
+
+    def start(self):
+        self.running = True
+        self.thread = threading.Thread(target=self._spin)
+        self.thread.start()
+
+    def stop(self):
+        self.running = False
+        if self.thread:
+            self.thread.join()
+        # Clear the line and move cursor to beginning
+        sys.stdout.write('\r' + ' ' * (len(self.message) + 10) + '\r')
+        sys.stdout.flush()
+
+    def _spin(self):
+        i = 0
+        while self.running:
+            sys.stdout.write(f'\r{self.message} {self.spinner_chars[i % len(self.spinner_chars)]}')
+            sys.stdout.flush()
+            time.sleep(0.1)
+            i += 1
+
 def wait_with_progress(message, process):
-    """Show a message and print dots while waiting for a process to complete."""
-    # Save current terminal settings
-    save_terminal_settings()
-
-    # Set terminal to raw mode
-    tty.setraw(sys.stdin.fileno())
-
-    print(f"\n{message}", end="", flush=True)
-
-    def print_dots():
-        while process.poll() is None:
-            print(".", end="", flush=True)
-            time.sleep(5)
-
-    # Start dot printing in a separate thread
-    dot_thread = threading.Thread(target=print_dots, daemon=True)
-    dot_thread.start()
-
-    # Wait for the process to complete
-    process.wait()
-
-    # Print newline
-    print("\n", end="", flush=True)
-
-    # Restore terminal settings
-    restore_terminal_settings()
+    """Show a message and print progress while waiting for a process to complete."""
+    spinner = Spinner(message)
+    spinner.start()
+    try:
+        process.wait()
+    finally:
+        spinner.stop()
+        print("Done!")
 
 def main(p: Path):
     print(f"\n📂 {p.parent.name}")
