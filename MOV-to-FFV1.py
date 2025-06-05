@@ -2,99 +2,57 @@
 # Version 1.4.0
 
 import argparse
-import atexit
 import datetime
 import itertools
 import shutil
-import signal
 import subprocess
 import sys
 import time
 import threading
-import os
 
 from pathlib import Path
 
-def auto_cleanup_processes(func):
-    """Decorator that ensures subprocess cleanup on exit"""
-    processes = []
-    original_popen = None  # Declare in outer scope
-
-    def cleanup():
-        for proc in processes:
-            if proc.poll() is None:
-                try:
-                    proc.terminate()
-                    proc.wait(timeout=2)
-                except subprocess.TimeoutExpired:
-                    proc.kill()
-                    proc.wait()
-                except (ProcessLookupError, OSError):
-                    pass
-
-    def patched_popen(*args, **kwargs):
-        # Use the original Popen to avoid recursion
-        proc = original_popen(*args, **kwargs)
-        processes.append(proc)
-        return proc
-
-    def wrapper(*args, **kwargs):
-        # Setup cleanup
-        atexit.register(cleanup)
-        signal.signal(signal.SIGINT, lambda s, f: (cleanup(), exit(0)))
-
-        # Store original Popen and patch it
-        nonlocal original_popen
-        original_popen = subprocess.Popen
-        subprocess.Popen = patched_popen
-
-        try:
-            return func(*args, **kwargs)
-        finally:
-            subprocess.Popen = original_popen  # Restore original
-            cleanup()
-
-    return wrapper
-
 class Spinner:
-    def __init__(self, message="Processing"):
-        self.spinner_chars = "|/-\\"
-        self.message = message
-        self.running = False
-        self.thread = None
+    # https://stackoverflow.com/a/57974583
 
-    def start(self):
-        self.running = True
-        self.thread = threading.Thread(target=self._spin)
-        self.thread.start()
+    __default_spinner_symbols_list = ['.    ', '..   ', '...  ', '.... ', '.....', ' ....', '  ...', '   ..', '    .', '     ']
+
+    # needed for Python < 3.9
+    from typing import List
+
+    def __init__(self, spinner_symbols_list: List[str] = None):
+        spinner_symbols_list = spinner_symbols_list if spinner_symbols_list else Spinner.__default_spinner_symbols_list
+        self.__screen_lock = threading.Event()
+        self.__spinner = itertools.cycle(spinner_symbols_list)
+        self.__stop_event = False
+        self.__thread = None
+
+    def get_spin(self):
+        return self.__spinner
+
+    def start(self, spinner_message: str):
+        self.__stop_event = False
+        time.sleep(0.3)
+
+        def run_spinner(message):
+            while not self.__stop_event:
+                print("\r{message} {spinner}".format(message=message, spinner=next(self.__spinner)), end="")
+                time.sleep(0.3)
+
+            self.__screen_lock.set()
+
+        self.__thread = threading.Thread(target=run_spinner, args=(spinner_message,), daemon=True)
+        self.__thread.start()
 
     def stop(self):
-        self.running = False
-        if self.thread:
-            self.thread.join()
-        # Clear the line and move cursor to beginning
-        sys.stdout.write('\r' + ' ' * (len(self.message) + 10) + '\r')
-        sys.stdout.flush()
-        # Ensure we're on a new line
-        print()
+        self.__stop_event = True
+        if self.__screen_lock.is_set():
+            self.__screen_lock.wait()
+            self.__screen_lock.clear()
+            print("\r", end="")
 
-    def _spin(self):
-        i = 0
-        while self.running:
-            sys.stdout.write(f'\r{self.message} {self.spinner_chars[i % len(self.spinner_chars)]}')
-            sys.stdout.flush()
-            time.sleep(0.1)
-            i += 1
+        print("\r", end="")
 
-def wait_with_progress(message, process):
-    """Show a message and print progress while waiting for a process to complete."""
-    spinner = Spinner(message)
-    spinner.start()
-    try:
-        process.wait()
-    finally:
-        spinner.stop()
-        print("Done!")
 
 def main(p: Path):
     print(f"\n📂 {p.parent.name}")
@@ -252,8 +210,10 @@ def main(p: Path):
             saved_md5_mov_file = f.read().split()[0].lower()
         # wait for *.mov file MD5 calculation to complete
         print("\n")
-        wait_with_progress("🤼 WAITING FOR MD5 COMPARISON TO COMPLETE", calculating_md5_mov_file)
+        spinner = Spinner()
+        spinner.start("🤼 WAITING FOR MD5 COMPARISON TO COMPLETE")
         calculated_md5_mov_file = calculating_md5_mov_file.communicate()[0].split()[0]
+        spinner.stop()
         # compare calculated MD5 of *.mov file with saved MD5 checksum file
         print(f"{p.name}:        {calculated_md5_mov_file}")
         print(f"{p.name}.md5:    {saved_md5_mov_file}")
@@ -286,8 +246,10 @@ def main(p: Path):
         f.write(f"```\n$ {FFMPEG_CMD} -version\n{print_ffmpeg_version}\n```\n\n")
     # wait for transcode to complete; ffmpeg writes its message output to stderr
     print("\n")
-    wait_with_progress("⏳ WAITING FOR TRANSCODING TO COMPLETE", transcode)
+    spinner = Spinner()
+    spinner.start("⏳ WAITING FOR TRANSCODING TO COMPLETE")
     ffmpeg_output = transcode.communicate()[1]
+    spinner.stop()
     if transcode.returncode != 0:
         print("\n❌ FFMPEG TRANSCODE FAILED")
         print(ffmpeg_output)
@@ -325,8 +287,10 @@ def main(p: Path):
     ).stdout.strip()
     # wait for *--FFV1.mkv file MD5 calculation to complete
     print("\n")
-    wait_with_progress("🤼 WAITING FOR MD5 COMPARISON TO COMPLETE", calculating_md5_mkv_file)
+    spinner = Spinner()
+    spinner.start("🤼 WAITING FOR MD5 COMPARISON TO COMPLETE")
     calculated_md5_mkv_file = calculating_md5_mkv_file.communicate()[0].split()[0]
+    spinner.stop()
     with open(f"{p.parent}/{p.stem}--FFV1.mkv.md", "a") as f:
         f.write(
             "Calculated the MD5 checksum of the transcoded MKV file.\n\n"
@@ -337,8 +301,10 @@ def main(p: Path):
         f.write(calculated_md5_mkv_file)
     # wait for *.mov streamhash MD5 calculation to complete
     print("\n")
-    wait_with_progress("🤼 WAITING FOR MD5 COMPARISON TO COMPLETE", calculating_md5_mov_streams)
+    spinner = Spinner()
+    spinner.start("🤼 WAITING FOR MD5 COMPARISON TO COMPLETE")
     calculated_md5_mov_streams = calculating_md5_mov_streams.communicate()[0].strip()
+    spinner.stop()
     # compare MD5 hashes of *.mov audio/video streams with MD5 hashes of *--FFV1.mkv audio/video streams
     print(f"{p.name} (streams):\n{calculated_md5_mov_streams}")
     print(f"{p.stem}--FFV1.mkv (streams):\n{calculated_md5_mkv_streams}")
@@ -361,7 +327,8 @@ def main(p: Path):
         )
     # copy everything to destination with exceptions
     print("\n")
-    wait_with_progress("⏳ WAITING FOR FILE MOVE TO COMPLETE", subprocess.Popen(['true']))  # Dummy process for the file operations
+    spinner = Spinner()
+    spinner.start("⏳ WAITING FOR FILE MOVE TO COMPLETE")
     # using copytree in case we cross file system boundaries
     shutil.copytree(
         p.parent.as_posix(),
@@ -371,6 +338,7 @@ def main(p: Path):
     p.parent.joinpath(f"{p.stem}--FFV1.mkv").unlink()
     p.parent.joinpath(f"{p.stem}--FFV1.mkv.md").unlink()
     p.parent.joinpath(f"{p.stem}--FFV1.mkv.md5").unlink()
+    spinner.stop()
     print("\n✅ DONE\n")
 
 if __name__ == "__main__":
