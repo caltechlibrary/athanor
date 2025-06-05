@@ -61,7 +61,7 @@ class Spinner:
 
         def run_spinner(message):
             while not self.__stop_event:
-                print("\r{message} {spinner}".format(message=message, spinner=next(self.__spinner)), end="")
+                print("\r{message} {spinner}".format(message=message, spinner=next(self.__spinner)), end="", flush=True)
                 time.sleep(0.3)
 
             self.__screen_lock.set()
@@ -74,9 +74,11 @@ class Spinner:
         if self.__screen_lock.is_set():
             self.__screen_lock.wait()
             self.__screen_lock.clear()
-            print("\r", end="")
 
-        print("\r", end="")
+        # Clear the current line and ensure cursor is visible
+        print("\r\033[K", end="", flush=True)
+        # Make sure cursor is visible
+        print("\033[?25h", end="", flush=True)
 
 
 def main(p: Path):
