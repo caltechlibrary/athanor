@@ -80,7 +80,7 @@ class Spinner:
 
 
 def main(p: Path):
-    print(f"\n📁 {p.parent.name}")
+    print(f"\n📂 {p.parent.name}")
     video_stream_count = len(
         subprocess.run(
             [
@@ -138,7 +138,7 @@ def main(p: Path):
         ).stdout.split()
     )
     print(f"🔇 {p.name} contains {subtitle_stream_count} subtitle streams")
-    with open(f"{p.parent}/{p.parent.name}_prsv.mkv.md", "w") as f:
+    with open(f"{p.parent}/{p.stem}--FFV1.mkv.md", "w") as f:
         f.write(
             "# TRANSCODING LOG\n\nThese were the steps used to convert the source MOV file to a lossless FFV1/MKV file.\n\n"
         )
@@ -199,8 +199,8 @@ def main(p: Path):
         text=True,
     )
     background_processes.append(calculating_md5_mov_streams)
-    # transcode *.mov to *_prsv.mkv
-    print(f"⏳ transcoding source *.mov to *_prsv.mkv in the background")
+    # transcode *.mov to *--FFV1.mkv
+    print(f"⏳ transcoding source *.mov to *--FFV1.mkv in the background")
     transcode_cmd = [
         FFMPEG_CMD,
         "-hide_banner",
@@ -225,7 +225,7 @@ def main(p: Path):
     ]
     if skip_subtitle_streams:
         transcode_cmd.append("-sn")
-    transcode_cmd.append(f"{p.parent}/{p.parent.name}_prsv.mkv")
+    transcode_cmd.append(f"{p.parent}/{p.stem}--FFV1.mkv")
     transcode = subprocess.Popen(
         transcode_cmd,
         stdout=subprocess.PIPE,
@@ -252,7 +252,7 @@ def main(p: Path):
             exit(1)
         else:
             print("✅ MD5 FILE MATCH")
-        with open(f"{p.parent}/{p.parent.name}_prsv.mkv.md", "a") as f:
+        with open(f"{p.parent}/{p.stem}--FFV1.mkv.md", "a") as f:
             f.write(
                 "Calculated the MD5 checksum of the source MOV file and compared it with the saved MD5 checksum.\n\n"
             )
@@ -260,7 +260,7 @@ def main(p: Path):
             f.write(f"```\n$ md5sum {p.name}\n{calculated_md5_mov_file}  {p.name}\n```\n\n")
             f.write("Saved MD5:\n")
             f.write(f"```\n$ cat {p.name}.md5\n{saved_md5_mov_file}  {p.name}.md5\n```\n\n")
-    with open(f"{p.parent}/{p.parent.name}_prsv.mkv.md", "a") as f:
+    with open(f"{p.parent}/{p.stem}--FFV1.mkv.md", "a") as f:
         f.write("FFmpeg version used to transcode the file.\n")
     print_ffmpeg_version = subprocess.run(
         [
@@ -270,7 +270,7 @@ def main(p: Path):
         capture_output=True,
         text=True,
     ).stdout.strip()
-    with open(f"{p.parent}/{p.parent.name}_prsv.mkv.md", "a") as f:
+    with open(f"{p.parent}/{p.stem}--FFV1.mkv.md", "a") as f:
         f.write(f"```\n$ {FFMPEG_CMD} -version\n{print_ffmpeg_version}\n```\n\n")
     # wait for transcode to complete; ffmpeg writes its message output to stderr
     print("\n")
@@ -282,28 +282,28 @@ def main(p: Path):
         print("\n❌ FFMPEG TRANSCODE FAILED")
         print(ffmpeg_output)
         calculating_md5_mov_streams.terminate()
-        with open(Path(args.dst).joinpath(f"{p.parent.name}--ERROR.md"), "w") as f:
+        with open(Path(args.dst).joinpath(f"{p.stem}--ERROR.md"), "w") as f:
             f.write(f"# ❌ FFMPEG TRANSCODE FAILED\n\n```\n{ffmpeg_output}\n```\n")
         return
-    with open(f"{p.parent}/{p.parent.name}_prsv.mkv.md", "a") as f:
+    with open(f"{p.parent}/{p.stem}--FFV1.mkv.md", "a") as f:
         f.write("FFmpeg output.\n")
         f.write(
-            f"```\n$ {FFMPEG_CMD} -hide_banner -nostats -i {p.name} -map 0 -dn -c:v ffv1 -level 3 -g 1 -slicecrc 1 -slices 4 -c:a copy {p.parent.name}_prsv.mkv\n{ffmpeg_output}\n```\n\n"
+            f"```\n$ {FFMPEG_CMD} -hide_banner -nostats -i {p.name} -map 0 -dn -c:v ffv1 -level 3 -g 1 -slicecrc 1 -slices 4 -c:a copy {p.stem}--FFV1.mkv\n{ffmpeg_output}\n```\n\n"
         )
-    # calculate MD5 of *_prsv.mkv file
-    print(f"\n⏳ calculating *_prsv.mkv file MD5 in the background")
+    # calculate MD5 of *--FFV1.mkv file
+    print(f"\n⏳ calculating *--FFV1.mkv file MD5 in the background")
     calculating_md5_mkv_file = subprocess.Popen(
-        ["md5sum", f"{p.parent}/{p.parent.name}_prsv.mkv"],
+        ["md5sum", f"{p.parent}/{p.stem}--FFV1.mkv"],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
     )
-    # calculate MD5 hashes of *_prsv.mkv audio/video streams
+    # calculate MD5 hashes of *--FFV1.mkv audio/video streams
     calculated_md5_mkv_streams = subprocess.run(
         [
             FFMPEG_CMD,
             "-i",
-            f"{p.parent}/{p.parent.name}_prsv.mkv",
+            f"{p.parent}/{p.stem}--FFV1.mkv",
             "-f",
             "streamhash",
             "-hash",
@@ -313,19 +313,19 @@ def main(p: Path):
         capture_output=True,
         text=True,
     ).stdout.strip()
-    # wait for *_prsv.mkv file MD5 calculation to complete
+    # wait for *--FFV1.mkv file MD5 calculation to complete
     print("\n")
     spinner = Spinner()
     spinner.start("🤼 WAITING FOR MD5 COMPARISON TO COMPLETE")
     calculated_md5_mkv_file = calculating_md5_mkv_file.communicate()[0].split()[0]
     spinner.stop()
-    with open(f"{p.parent}/{p.parent.name}_prsv.mkv.md", "a") as f:
+    with open(f"{p.parent}/{p.stem}--FFV1.mkv.md", "a") as f:
         f.write(
             "Calculated the MD5 checksum of the transcoded MKV file.\n\n"
         )
         f.write("Calculated MD5:\n")
-        f.write(f"```\n$ md5sum {p.parent}/{p.parent.name}_prsv.mkv.md\n{calculated_md5_mkv_file}  {p.parent}/{p.parent.name}_prsv.mkv.md\n```\n\n")
-    with open(f"{p.parent}/{p.parent.name}_prsv.mkv.md5", "w") as f:
+        f.write(f"```\n$ md5sum {p.parent}/{p.stem}--FFV1.mkv.md\n{calculated_md5_mkv_file}  {p.parent}/{p.stem}--FFV1.mkv.md\n```\n\n")
+    with open(f"{p.parent}/{p.stem}--FFV1.mkv.md5", "w") as f:
         f.write(calculated_md5_mkv_file)
     # wait for *.mov streamhash MD5 calculation to complete
     print("\n")
@@ -333,15 +333,15 @@ def main(p: Path):
     spinner.start("🤼 WAITING FOR MD5 COMPARISON TO COMPLETE")
     calculated_md5_mov_streams = calculating_md5_mov_streams.communicate()[0].strip()
     spinner.stop()
-    # compare MD5 hashes of *.mov audio/video streams with MD5 hashes of *_prsv.mkv audio/video streams
+    # compare MD5 hashes of *.mov audio/video streams with MD5 hashes of *--FFV1.mkv audio/video streams
     print(f"{p.name} (streams):\n{calculated_md5_mov_streams}")
-    print(f"{p.parent.name}_prsv.mkv (streams):\n{calculated_md5_mkv_streams}")
+    print(f"{p.stem}--FFV1.mkv (streams):\n{calculated_md5_mkv_streams}")
     if calculated_md5_mov_streams != calculated_md5_mkv_streams:
         print("❌ MD5 STREAM MISMATCH")
         exit(1)
     else:
         print("✅ MD5 STREAM MATCH")
-    with open(f"{p.parent}/{p.parent.name}_prsv.mkv.md", "a") as f:
+    with open(f"{p.parent}/{p.stem}--FFV1.mkv.md", "a") as f:
         f.write(
             "Compared the calculated MD5 stream hashes from the source MOV file with those from the transcoded MKV file. Future stream hash calculations must use the same or a compatible version of FFmpeg, otherwise the output will differ.\n\n"
         )
@@ -351,7 +351,7 @@ def main(p: Path):
         )
         f.write("MKV stream hashes:\n")
         f.write(
-            f"```\n$ {FFMPEG_CMD} -i {p.parent.name}_prsv.mkv -f streamhash -hash md5 -\n{calculated_md5_mkv_streams}\n```\n\n"
+            f"```\n$ {FFMPEG_CMD} -i {p.name}--FFV1.mkv -f streamhash -hash md5 -\n{calculated_md5_mkv_streams}\n```\n\n"
         )
     # copy everything to destination with exceptions
     print("\n")
@@ -360,12 +360,12 @@ def main(p: Path):
     # using copytree in case we cross file system boundaries
     shutil.copytree(
         p.parent.as_posix(),
-        Path(args.dst).joinpath(p.parent.name).as_posix(),
+        Path(args.dst).joinpath(p.stem).as_posix(),
         ignore=shutil.ignore_patterns("*.mov*", "*.mp4*"),
     )
-    p.parent.joinpath(f"{p.parent.name}_prsv.mkv").unlink()
-    p.parent.joinpath(f"{p.parent.name}_prsv.mkv.md").unlink()
-    p.parent.joinpath(f"{p.parent.name}_prsv.mkv.md5").unlink()
+    p.parent.joinpath(f"{p.stem}--FFV1.mkv").unlink()
+    p.parent.joinpath(f"{p.stem}--FFV1.mkv.md").unlink()
+    p.parent.joinpath(f"{p.stem}--FFV1.mkv.md5").unlink()
     spinner.stop()
     print("\n✅ DONE\n")
 
