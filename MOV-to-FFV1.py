@@ -53,8 +53,9 @@ def wait_with_progress(message, process):
     # Wait for the process to complete
     process.wait()
 
-    # Print newline after dots
-    print()
+    # Print newline and reset terminal
+    print("\n", end="", flush=True)
+    sys.stdout.flush()
 
 def main(p: Path):
     print(f"\n📂 {p.parent.name}")
