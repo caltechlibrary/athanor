@@ -20,6 +20,9 @@ background_processes = []
 
 def cleanup_processes():
     """Terminate all background processes when script exits."""
+    # Ensure we're on a new line before cleanup
+    print()
+
     for process in background_processes:
         if process and process.poll() is None:  # Check if process is still running
             try:
@@ -27,6 +30,9 @@ def cleanup_processes():
                 process.wait(timeout=5)  # Wait up to 5 seconds for process to terminate
             except subprocess.TimeoutExpired:
                 process.kill()  # Force kill if process doesn't terminate gracefully
+
+    # Ensure we're on a new line after cleanup
+    print()
 
 def signal_handler(signum, frame):
     """Handle termination signals."""
@@ -57,6 +63,8 @@ class Spinner:
         # Clear the line and move cursor to beginning
         sys.stdout.write('\r' + ' ' * (len(self.message) + 10) + '\r')
         sys.stdout.flush()
+        # Ensure we're on a new line
+        print()
 
     def _spin(self):
         i = 0
