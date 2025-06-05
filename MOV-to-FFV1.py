@@ -351,7 +351,7 @@ def main(p: Path):
         )
         f.write("MKV stream hashes:\n")
         f.write(
-            f"```\n$ {FFMPEG_CMD} -i {p.name}--FFV1.mkv -f streamhash -hash md5 -\n{calculated_md5_mkv_streams}\n```\n\n"
+            f"```\n$ {FFMPEG_CMD} -i {p.stem}--FFV1.mkv -f streamhash -hash md5 -\n{calculated_md5_mkv_streams}\n```\n\n"
         )
     # copy everything to destination with exceptions
     print("\n")
