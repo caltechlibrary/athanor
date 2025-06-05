@@ -32,8 +32,8 @@ def auto_cleanup_processes(func):
                     pass
 
     def patched_popen(*args, **kwargs):
-        # Patch subprocess.Popen to track processes
-        proc = subprocess.Popen(*args, **kwargs)
+        # Use the original Popen to avoid recursion
+        proc = original_popen(*args, **kwargs)
         processes.append(proc)
         return proc
 
@@ -42,7 +42,8 @@ def auto_cleanup_processes(func):
         atexit.register(cleanup)
         signal.signal(signal.SIGINT, lambda s, f: (cleanup(), exit(0)))
 
-        # Monkey patch Popen
+        # Store original Popen and patch it
+        nonlocal original_popen
         original_popen = subprocess.Popen
         subprocess.Popen = patched_popen
 
