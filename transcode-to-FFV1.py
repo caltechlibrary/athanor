@@ -248,8 +248,10 @@ def main(p: Path):
         "-slices",
         "4",
         "-c:a",
-        "copy",
-        "-dn",  # Only audio, video, and subtitles are supported for Matroska.
+        "flac",
+        "-compression_level",
+        "12",
+        "-dn",
     ]
     if skip_subtitle_streams:
         transcode_cmd.append("-sn")
@@ -316,7 +318,7 @@ def main(p: Path):
     with open(f"{p.parent}/{p.stem}--FFV1.mkv.md", "a") as f:
         f.write("FFmpeg output.\n")
         f.write(
-            f"```\n$ {FFMPEG_CMD} -hide_banner -nostats -i {p.name} -map 0 -dn -c:v ffv1 -level 3 -g 1 -slicecrc 1 -slices 4 -c:a copy {p.stem}--FFV1.mkv\n{ffmpeg_output}\n```\n\n"
+            f"```\n$ {FFMPEG_CMD} -hide_banner -nostats -i {p.name} -map 0 -dn -c:v ffv1 -level 3 -g 1 -slicecrc 1 -slices 4 -c:a flac -compression_level 12 {p.stem}--FFV1.mkv\n{ffmpeg_output}\n```\n\n"
         )
     # calculate MD5 of *--FFV1.mkv file
     print(f"\n⏳ calculating *--FFV1.mkv file MD5 in the background")
