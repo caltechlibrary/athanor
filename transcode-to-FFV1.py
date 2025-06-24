@@ -1,5 +1,5 @@
-# MOV-to-FFV1.py
-# Version 1.🐞.🐞 original spinner, cleanup decorator, main() return, wait(), restore_tty()
+# transcode-to-FFV1.py
+# Version 1.5.0
 
 import argparse
 import atexit
@@ -13,6 +13,11 @@ import time
 import threading
 
 from pathlib import Path
+
+# Define video extensions globally for DRY usage
+VIDEO_EXTS = [
+    ".mov", ".mp4", ".mkv", ".avi", ".mxf", ".webm", ".flv", ".wmv", ".mpg", ".mpeg", ".3gp", ".ogg", ".ogv"
+]
 
 def restore_tty():
     subprocess.run(['stty','sane'])
@@ -165,14 +170,14 @@ def main(p: Path):
     print(f"🔇 {p.name} contains {subtitle_stream_count} subtitle streams")
     with open(f"{p.parent}/{p.stem}--FFV1.mkv.md", "w") as f:
         f.write(
-            "# TRANSCODING LOG\n\nThese were the steps used to convert the source MOV file to a lossless FFV1/MKV file.\n\n"
+            "# TRANSCODING LOG\n\nThese were the steps used to convert the source file to a lossless FFV1/MKV file.\n\n"
         )
     """Start long-running processes at the same time in the background."""
     print("\n")
     if Path(f"{p.as_posix()}.md5").exists():
-        # calculate MD5 of *.mov file if a comparison file exists
-        print(f"⏳ calculating source *.mov file MD5 in the background")
-        calculating_md5_mov_file = subprocess.Popen(
+        # calculate MD5 of source file if a comparison file exists
+        print(f"⏳ calculating source file MD5 in the background")
+        calculating_md5_source_file = subprocess.Popen(
             ["md5sum", p.as_posix()],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -214,16 +219,16 @@ def main(p: Path):
     else:
         # set up option to skip transcoding subtitle streams
         skip_subtitle_streams = True
-    # calculate MD5 of *.mov audio/video streams
-    print(f"⏳ calculating source *.mov streamhash as MD5 in the background")
-    calculating_md5_mov_streams = subprocess.Popen(
+    # calculate MD5 of source audio/video streams
+    print(f"⏳ calculating source streamhash as MD5 in the background")
+    calculating_md5_source_streams = subprocess.Popen(
         [FFMPEG_CMD, "-i", p.as_posix(), "-f", "streamhash", "-hash", "md5", "-"],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
     )
-    # transcode *.mov to *--FFV1.mkv
-    print(f"⏳ transcoding source *.mov to *--FFV1.mkv in the background")
+    # transcode source to *--FFV1.mkv
+    print(f"⏳ transcoding source to *--FFV1.mkv in the background")
     transcode_cmd = [
         FFMPEG_CMD,
         "-hide_banner",
@@ -257,32 +262,32 @@ def main(p: Path):
     )
     if Path(f"{p.as_posix()}.md5").exists():
         with open(f"{p.as_posix()}.md5") as f:
-            saved_md5_mov_file = f.read().split()[0].lower()
-        # wait for *.mov file MD5 calculation to complete
+            saved_md5_source_file = f.read().split()[0].lower()
+        # wait for source file MD5 calculation to complete
         spinner = Spinner()
         spinner.start("🤼 WAITING FOR MD5 COMPARISON TO COMPLETE")
-        calculated_md5_mov_file = calculating_md5_mov_file.communicate()[0].split()[0]
+        calculated_md5_source_file = calculating_md5_source_file.communicate()[0].split()[0]
         spinner.stop()
-        # compare calculated MD5 of *.mov file with saved MD5 checksum file
-        print(f"{p.name}:        {calculated_md5_mov_file}")
-        print(f"{p.name}.md5:    {saved_md5_mov_file}")
-        if calculated_md5_mov_file != saved_md5_mov_file:
+        # compare calculated MD5 of source file with saved MD5 checksum file
+        print(f"{p.name}:        {calculated_md5_source_file}")
+        print(f"{p.name}.md5:    {saved_md5_source_file}")
+        if calculated_md5_source_file != saved_md5_source_file:
             print("❌ MD5 FILE MISMATCH")
             transcode.terminate()
             transcode.wait()
-            calculating_md5_mov_streams.terminate()
-            calculating_md5_mov_streams.wait()
+            calculating_md5_source_streams.terminate()
+            calculating_md5_source_streams.wait()
             exit(1)
         else:
             print("✅ MD5 FILE MATCH")
         with open(f"{p.parent}/{p.stem}--FFV1.mkv.md", "a") as f:
             f.write(
-                "Calculated the MD5 checksum of the source MOV file and compared it with the saved MD5 checksum.\n\n"
+                "Calculated the MD5 checksum of the source file and compared it with the saved MD5 checksum.\n\n"
             )
             f.write("Calculated MD5:\n")
-            f.write(f"```\n$ md5sum {p.name}\n{calculated_md5_mov_file}  {p.name}\n```\n\n")
+            f.write(f"```\n$ md5sum {p.name}\n{calculated_md5_source_file}  {p.name}\n```\n\n")
             f.write("Saved MD5:\n")
-            f.write(f"```\n$ cat {p.name}.md5\n{saved_md5_mov_file}  {p.name}.md5\n```\n\n")
+            f.write(f"```\n$ cat {p.name}.md5\n{saved_md5_source_file}  {p.name}.md5\n```\n\n")
     with open(f"{p.parent}/{p.stem}--FFV1.mkv.md", "a") as f:
         f.write("FFmpeg version used to transcode the file.\n")
     print_ffmpeg_version = subprocess.run(
@@ -303,8 +308,8 @@ def main(p: Path):
     if transcode.returncode != 0:
         print("\n❌ FFMPEG TRANSCODE FAILED")
         print(ffmpeg_output)
-        calculating_md5_mov_streams.terminate()
-        calculating_md5_mov_streams.wait()
+        calculating_md5_source_streams.terminate()
+        calculating_md5_source_streams.wait()
         with open(Path(args.dst).joinpath(f"{p.stem}--ERROR.md"), "w") as f:
             f.write(f"# ❌ FFMPEG TRANSCODE FAILED\n\n```\n{ffmpeg_output}\n```\n")
         return
@@ -349,26 +354,26 @@ def main(p: Path):
         f.write(f"```\n$ md5sum {p.parent}/{p.stem}--FFV1.mkv.md\n{calculated_md5_mkv_file}  {p.parent}/{p.stem}--FFV1.mkv.md\n```\n\n")
     with open(f"{p.parent}/{p.stem}--FFV1.mkv.md5", "w") as f:
         f.write(calculated_md5_mkv_file)
-    # wait for *.mov streamhash MD5 calculation to complete
+    # wait for source streamhash MD5 calculation to complete
     spinner = Spinner()
     spinner.start("🤼 WAITING FOR MD5 COMPARISON TO COMPLETE")
-    calculated_md5_mov_streams = calculating_md5_mov_streams.communicate()[0].strip()
+    calculated_md5_source_streams = calculating_md5_source_streams.communicate()[0].strip()
     spinner.stop()
-    # compare MD5 hashes of *.mov audio/video streams with MD5 hashes of *--FFV1.mkv audio/video streams
-    print(f"{p.name} (streams):\n{calculated_md5_mov_streams}")
+    # compare MD5 hashes of source audio/video streams with MD5 hashes of *--FFV1.mkv audio/video streams
+    print(f"{p.name} (streams):\n{calculated_md5_source_streams}")
     print(f"{p.stem}--FFV1.mkv (streams):\n{calculated_md5_mkv_streams}")
-    if calculated_md5_mov_streams != calculated_md5_mkv_streams:
+    if calculated_md5_source_streams != calculated_md5_mkv_streams:
         print("❌ MD5 STREAM MISMATCH")
         exit(1)
     else:
         print("✅ MD5 STREAM MATCH")
     with open(f"{p.parent}/{p.stem}--FFV1.mkv.md", "a") as f:
         f.write(
-            "Compared the calculated MD5 stream hashes from the source MOV file with those from the transcoded MKV file. Future stream hash calculations must use the same or a compatible version of FFmpeg, otherwise the output will differ.\n\n"
+            "Compared the calculated MD5 stream hashes from the source file with those from the transcoded MKV file. Future stream hash calculations must use the same or a compatible version of FFmpeg, otherwise the output will differ.\n\n"
         )
-        f.write("MOV stream hashes:\n")
+        f.write("Source stream hashes:\n")
         f.write(
-            f"```\n$ {FFMPEG_CMD} -i {p.name} -f streamhash -hash md5 -\n{calculated_md5_mov_streams}\n```\n\n"
+            f"```\n$ {FFMPEG_CMD} -i {p.name} -f streamhash -hash md5 -\n{calculated_md5_source_streams}\n```\n\n"
         )
         f.write("MKV stream hashes:\n")
         f.write(
@@ -377,11 +382,10 @@ def main(p: Path):
     # copy everything to destination with exceptions
     spinner = Spinner()
     spinner.start("⏳ WAITING FOR FILE MOVE TO COMPLETE")
-    # using copytree in case we cross file system boundaries
-    shutil.copytree(
-        p.parent.as_posix(),
-        Path(args.dst).joinpath(p.stem).as_posix(),
-        ignore=shutil.ignore_patterns("*.mov*", "*.mp4*"),
+    copy_outputs_and_nonvideos(
+        p.parent,
+        Path(args.dst).joinpath(p.stem),
+        VIDEO_EXTS
     )
     p.parent.joinpath(f"{p.stem}--FFV1.mkv").unlink()
     p.parent.joinpath(f"{p.stem}--FFV1.mkv.md").unlink()
@@ -389,6 +393,31 @@ def main(p: Path):
     spinner.stop()
     print("\n✅ DONE\n")
     return
+
+def is_video_file(path, video_exts=VIDEO_EXTS):
+    return path.suffix.lower() in video_exts
+
+def is_source_video_md5(path, video_exts=VIDEO_EXTS):
+    # e.g., IMG_1234.mov.md5
+    if path.suffix.lower() != ".md5":
+        return False
+    stem = Path(path.stem)  # e.g., IMG_1234.mov
+    ext = stem.suffix.lower()
+    return ext in video_exts
+
+def copy_outputs_and_nonvideos(src_dir, dst_dir, video_exts=VIDEO_EXTS):
+    src_dir = Path(src_dir)
+    dst_dir = Path(dst_dir)
+    for file in src_dir.rglob("*"):
+        rel_path = file.relative_to(src_dir)
+        dest_path = dst_dir / rel_path
+        # Exclude source video files and their md5s
+        if is_video_file(file, video_exts) or is_source_video_md5(file, video_exts):
+            continue
+        # Only copy files (not directories)
+        if file.is_file():
+            dest_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(file, dest_path)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Preservation Transcoder")
@@ -403,6 +432,7 @@ if __name__ == "__main__":
     )
     parser.add_argument('--ffmpeg', default='/home/linuxbrew/.linuxbrew/bin/ffmpeg', help='(optional) path to ffmpeg binary')
     parser.add_argument('--ffprobe', default='/home/linuxbrew/.linuxbrew/bin/ffprobe', help='(optional) path to ffprobe binary')
+    parser.add_argument('--exclude', help='file extension to exclude from processing (e.g. mp4)', default=None)
     args = parser.parse_args(args=None if sys.argv[1:] else ["--help"])
     # VALIDATE ARGUMENTS
     if not Path(args.src).exists() and not Path(args.src).is_dir():
@@ -436,14 +466,17 @@ if __name__ == "__main__":
     else:
         print("❌ PROBLEM MOVING SOURCE FILES")
         exit(1)
-    # EXECUTE MAIN FUNCTION
-    # ASSUMPTION: the relevant src files have MOV extensions
-    mov_paths = list(BATCHES_DIRECTORY.glob("**/*.mov"))
+    # Find all video files (common extensions)
+    video_exts = VIDEO_EXTS.copy()
+    if args.exclude:
+        exclude_ext = args.exclude.lower().strip(".")
+        video_exts = [ext for ext in video_exts if ext.lstrip(".") != exclude_ext]
+    video_paths = [p for ext in video_exts for p in BATCHES_DIRECTORY.glob(f"**/*{ext}")]
     if args.level == "parent":
-        for p in sorted(mov_paths, key=lambda x: x.stat().st_size):
+        for p in sorted(video_paths, key=lambda x: x.stat().st_size):
             main(p)
     elif args.level == "object":
-        main(mov_paths[0])
+        main(video_paths[0])
     else:
         print("❌ UNEXPECTED ERROR")
         exit(1)
