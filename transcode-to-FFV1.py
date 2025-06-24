@@ -1,5 +1,5 @@
 # transcode-to-FFV1.py
-# Version 1.5.1
+# Version 1.5.2
 
 import argparse
 import atexit
@@ -295,7 +295,7 @@ def main(p: Path):
             transcode.wait()
             calculating_md5_source_streams.terminate()
             calculating_md5_source_streams.wait()
-            exit(1)
+            raise SystemExit("MD5 file mismatch")
         else:
             print("✅ MD5 FILE MATCH")
         with open(f"{p.parent}/{p.stem}--FFV1.mkv.md", "a") as f:
@@ -330,7 +330,7 @@ def main(p: Path):
         calculating_md5_source_streams.wait()
         with open(Path(args.dst).joinpath(f"{p.stem}--ERROR.md"), "w") as f:
             f.write(f"# ❌ FFMPEG TRANSCODE FAILED\n\n```\n{ffmpeg_output}\n```\n")
-        return
+        raise SystemExit("FFmpeg transcode failed")
     with open(f"{p.parent}/{p.stem}--FFV1.mkv.md", "a") as f:
         f.write("FFmpeg output.\n")
         f.write(
@@ -392,13 +392,13 @@ def main(p: Path):
         mkv_video_hashes = filter_video_lines(calculated_md5_mkv_streams)
         if source_video_hashes != mkv_video_hashes:
             print("❌ VIDEO STREAM MD5 MISMATCH (audio skipped due to AAC)")
-            exit(1)
+            raise SystemExit("Video stream MD5 mismatch (audio skipped due to AAC)")
         else:
             print("✅ VIDEO STREAM MD5 MATCH (audio skipped due to AAC)")
     else:
         if calculated_md5_source_streams != calculated_md5_mkv_streams:
             print("❌ MD5 STREAM MISMATCH")
-            exit(1)
+            raise SystemExit("MD5 stream mismatch")
         else:
             print("✅ MD5 STREAM MATCH")
     with open(f"{p.parent}/{p.stem}--FFV1.mkv.md", "a") as f:
@@ -506,9 +506,20 @@ if __name__ == "__main__":
         exclude_ext = args.exclude.lower().strip(".")
         video_exts = [ext for ext in video_exts if ext.lstrip(".") != exclude_ext]
     video_paths = [p for ext in video_exts for p in BATCHES_DIRECTORY.glob(f"**/*{ext}")]
+    failed_files = []
     if args.level == "parent":
         for p in sorted(video_paths, key=lambda x: x.stat().st_size):
-            main(p)
+            try:
+                main(p)
+            except SystemExit as e:
+                failed_files.append((p.name, str(e)))
+            except Exception as e:
+                failed_files.append((p.name, f"Exception: {e}"))
+        if failed_files:
+            print("\nSummary of failed files:")
+            for fname, reason in failed_files:
+                print(f"  {fname}: {reason}")
+            sys.exit(1)
     elif args.level == "object":
         main(video_paths[0])
     else:
