@@ -413,18 +413,6 @@ def main(p: Path):
         f.write(
             f"```\n$ {FFMPEG_CMD} -i {p.stem}--FFV1.mkv -f streamhash -hash md5 -\n{calculated_md5_mkv_streams}\n```\n\n"
         )
-    # copy everything to destination with exceptions
-    spinner = Spinner()
-    spinner.start("⏳ WAITING FOR FILE MOVE TO COMPLETE")
-    copy_outputs_and_nonvideos(
-        p.parent,
-        Path(args.dst).joinpath(p.stem),
-        VIDEO_EXTS
-    )
-    p.parent.joinpath(f"{p.stem}--FFV1.mkv").unlink()
-    p.parent.joinpath(f"{p.stem}--FFV1.mkv.md").unlink()
-    p.parent.joinpath(f"{p.stem}--FFV1.mkv.md5").unlink()
-    spinner.stop()
     print("\n✅ DONE\n")
     return
 
@@ -438,20 +426,6 @@ def is_source_video_md5(path, video_exts=VIDEO_EXTS):
     stem = Path(path.stem)  # e.g., IMG_1234.mov
     ext = stem.suffix.lower()
     return ext in video_exts
-
-def copy_outputs_and_nonvideos(src_dir, dst_dir, video_exts=VIDEO_EXTS):
-    src_dir = Path(src_dir)
-    dst_dir = Path(dst_dir)
-    for file in src_dir.rglob("*"):
-        rel_path = file.relative_to(src_dir)
-        dest_path = dst_dir / rel_path
-        # Exclude source video files and their md5s
-        if is_video_file(file, video_exts) or is_source_video_md5(file, video_exts):
-            continue
-        # Only copy files (not directories)
-        if file.is_file():
-            dest_path.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(file, dest_path)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Preservation Transcoder")
@@ -485,7 +459,7 @@ if __name__ == "__main__":
     FFMPEG_CMD = args.ffmpeg
     FFPROBE_CMD = args.ffprobe
     BATCHES_DIRECTORY = Path(args.dst).joinpath(
-        ".BATCHES",
+        "BATCHES",
         datetime.datetime.now()
         .isoformat(sep="-", timespec="seconds")
         .replace(":", "")
