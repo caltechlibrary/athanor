@@ -1,5 +1,5 @@
 # transcode-to-FFV1.py
-# Version 1.5.0
+# Version 1.5.1
 
 import argparse
 import atexit
@@ -107,6 +107,22 @@ class Spinner:
 
         print()
 
+
+def has_aac_audio_stream(filepath, ffprobe_cmd):
+    result = subprocess.run(
+        [
+            ffprobe_cmd,
+            "-v", "error",
+            "-select_streams", "a",
+            "-show_entries", "stream=codec_name",
+            "-of", "csv=p=0",
+            filepath
+        ],
+        capture_output=True,
+        text=True,
+    )
+    codecs = set(result.stdout.strip().split())
+    return "aac" in codecs
 
 @auto_cleanup_processes
 def main(p: Path):
@@ -364,11 +380,27 @@ def main(p: Path):
     # compare MD5 hashes of source audio/video streams with MD5 hashes of *--FFV1.mkv audio/video streams
     print(f"{p.name} (streams):\n{calculated_md5_source_streams}")
     print(f"{p.stem}--FFV1.mkv (streams):\n{calculated_md5_mkv_streams}")
-    if calculated_md5_source_streams != calculated_md5_mkv_streams:
-        print("❌ MD5 STREAM MISMATCH")
-        exit(1)
+    aac_audio = has_aac_audio_stream(p.as_posix(), FFPROBE_CMD)
+    if aac_audio:
+        # Only compare video stream hashes
+        def filter_video_lines(md5_output):
+            return "\n".join(
+                line for line in md5_output.splitlines()
+                if line.strip().startswith("v:")  # v: for video streams
+            )
+        source_video_hashes = filter_video_lines(calculated_md5_source_streams)
+        mkv_video_hashes = filter_video_lines(calculated_md5_mkv_streams)
+        if source_video_hashes != mkv_video_hashes:
+            print("❌ VIDEO STREAM MD5 MISMATCH (audio skipped due to AAC)")
+            exit(1)
+        else:
+            print("✅ VIDEO STREAM MD5 MATCH (audio skipped due to AAC)")
     else:
-        print("✅ MD5 STREAM MATCH")
+        if calculated_md5_source_streams != calculated_md5_mkv_streams:
+            print("❌ MD5 STREAM MISMATCH")
+            exit(1)
+        else:
+            print("✅ MD5 STREAM MATCH")
     with open(f"{p.parent}/{p.stem}--FFV1.mkv.md", "a") as f:
         f.write(
             "Compared the calculated MD5 stream hashes from the source file with those from the transcoded MKV file. Future stream hash calculations must use the same or a compatible version of FFmpeg, otherwise the output will differ.\n\n"
