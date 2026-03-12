@@ -1,5 +1,5 @@
 # transcode-to-FFV1.py
-# Version 1.6.0
+# Version 1.7.0
 
 import argparse
 import atexit
@@ -170,8 +170,62 @@ def parse_streamhash_lines(md5_output):
 
     return parsed
 
+
+def replace_last_stem_segment(stem: str, replacement: str) -> str:
+    parts = stem.split("_")
+    if len(parts) > 1:
+        parts[-1] = replacement
+        return "_".join(parts)
+    return f"{stem}_{replacement}"
+
+
+def build_output_paths(source_video_path: Path):
+    ffv1_stem = replace_last_stem_segment(source_video_path.stem, "FFV1")
+    transcode_log_stem = replace_last_stem_segment(source_video_path.stem, "TRANSCODE")
+    output_mkv_path = source_video_path.with_name(f"{ffv1_stem}.mkv")
+    output_mkv_md5_path = Path(f"{output_mkv_path.as_posix()}.md5")
+    transcode_log_path = source_video_path.with_name(f"{transcode_log_stem}.md")
+    return output_mkv_path, output_mkv_md5_path, transcode_log_path
+
+
+def build_destination_paths(source_video_path: Path, source_root: Path, destination_root: Path):
+    relative_source_path = source_video_path.relative_to(source_root)
+    source_destination_path = destination_root.joinpath(relative_source_path)
+    ffv1_stem = replace_last_stem_segment(source_video_path.stem, "FFV1")
+    transcode_log_stem = replace_last_stem_segment(source_video_path.stem, "TRANSCODE")
+    output_mkv_path = source_destination_path.with_name(f"{ffv1_stem}.mkv")
+    output_mkv_md5_path = Path(f"{output_mkv_path.as_posix()}.md5")
+    transcode_log_path = source_destination_path.with_name(f"{transcode_log_stem}.md")
+    return output_mkv_path, output_mkv_md5_path, transcode_log_path
+
+
+def copy_remaining_files_after_transcode(source_root: Path, destination_root: Path, processed_video_paths):
+    processed_video_set = {p.resolve() for p in processed_video_paths}
+    processed_video_md5_set = {Path(f"{p.as_posix()}.md5").resolve() for p in processed_video_paths}
+
+    for source_path in source_root.rglob("*"):
+        relative_path = source_path.relative_to(source_root)
+        destination_path = destination_root.joinpath(relative_path)
+
+        if source_path.is_dir():
+            destination_path.mkdir(parents=True, exist_ok=True)
+            continue
+
+        if source_path.resolve() in processed_video_set or source_path.resolve() in processed_video_md5_set:
+            continue
+
+        destination_path.parent.mkdir(parents=True, exist_ok=True)
+        if destination_path.exists():
+            continue
+        shutil.copy2(source_path, destination_path)
+
 @auto_cleanup_processes
-def main(p: Path, dst_dir: Path):
+def main(p: Path, source_root: Path, destination_root: Path):
+    output_mkv_path, output_mkv_md5_path, transcode_log_path = build_destination_paths(p, source_root, destination_root)
+    output_mkv_path.parent.mkdir(parents=True, exist_ok=True)
+    source_md5_path = Path(f"{p.as_posix()}.md5")
+    error_log_path = transcode_log_path.with_name(f"{transcode_log_path.stem}--ERROR.md")
+
     print(f"\n📂 {p.parent.name}")
     video_stream_count = len(
         subprocess.run(
@@ -230,14 +284,14 @@ def main(p: Path, dst_dir: Path):
         ).stdout.split()
     )
     print(f"🔇 {p.name} contains {subtitle_stream_count} subtitle streams")
-    with open(f"{p.parent}/{p.stem}--FFV1.mkv.md", "w") as f:
+    with open(transcode_log_path, "w") as f:
         f.write(
             "# TRANSCODING LOG\n\nThese were the steps used to convert the source file to a lossless FFV1/MKV file.\n\n"
         )
     """Start long-running processes at the same time in the background."""
     print("\n")
     calculating_md5_source_file = None
-    if Path(f"{p.as_posix()}.md5").exists():
+    if source_md5_path.exists():
         # calculate MD5 of source file if a comparison file exists
         print("⏳ calculating source file MD5 in the background")
         calculating_md5_source_file = subprocess.Popen(
@@ -290,8 +344,8 @@ def main(p: Path, dst_dir: Path):
         stderr=subprocess.PIPE,
         text=True,
     )
-    # transcode source to *--FFV1.mkv
-    print("⏳ transcoding source to *--FFV1.mkv in the background")
+    # transcode source to FFV1 MKV
+    print(f"⏳ transcoding source to {output_mkv_path.name} in the background")
     transcode_cmd = [
         FFMPEG_CMD,
         "-hide_banner",
@@ -318,15 +372,15 @@ def main(p: Path, dst_dir: Path):
     ]
     if skip_subtitle_streams:
         transcode_cmd.append("-sn")
-    transcode_cmd.append(f"{p.parent}/{p.stem}--FFV1.mkv")
+    transcode_cmd.append(output_mkv_path.as_posix())
     transcode = subprocess.Popen(
         transcode_cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
     )
-    if Path(f"{p.as_posix()}.md5").exists():
-        with open(f"{p.as_posix()}.md5") as f:
+    if source_md5_path.exists():
+        with open(source_md5_path) as f:
             saved_md5_source_file = f.read().split()[0].lower()
         # wait for source file MD5 calculation to complete
         if calculating_md5_source_file is None:
@@ -347,7 +401,7 @@ def main(p: Path, dst_dir: Path):
             raise SystemExit("MD5 file mismatch")
         else:
             print("✅ MD5 FILE MATCH")
-        with open(f"{p.parent}/{p.stem}--FFV1.mkv.md", "a") as f:
+        with open(transcode_log_path, "a") as f:
             f.write(
                 "Calculated the MD5 checksum of the source file and compared it with the saved MD5 checksum.\n\n"
             )
@@ -355,7 +409,7 @@ def main(p: Path, dst_dir: Path):
             f.write(f"```\n$ md5sum {p.name}\n{calculated_md5_source_file}  {p.name}\n```\n\n")
             f.write("Saved MD5:\n")
             f.write(f"```\n$ cat {p.name}.md5\n{saved_md5_source_file}  {p.name}.md5\n```\n\n")
-    with open(f"{p.parent}/{p.stem}--FFV1.mkv.md", "a") as f:
+    with open(transcode_log_path, "a") as f:
         f.write("FFmpeg version used to transcode the file.\n")
     print_ffmpeg_version = subprocess.run(
         [
@@ -365,7 +419,7 @@ def main(p: Path, dst_dir: Path):
         capture_output=True,
         text=True,
     ).stdout.strip()
-    with open(f"{p.parent}/{p.stem}--FFV1.mkv.md", "a") as f:
+    with open(transcode_log_path, "a") as f:
         f.write(f"```\n$ {FFMPEG_CMD} -version\n{print_ffmpeg_version}\n```\n\n")
     # wait for transcode to complete; ffmpeg writes its message output to stderr
     spinner = Spinner()
@@ -377,28 +431,28 @@ def main(p: Path, dst_dir: Path):
         print(ffmpeg_output)
         calculating_md5_source_streams.terminate()
         calculating_md5_source_streams.wait()
-        with open(dst_dir.joinpath(f"{p.stem}--ERROR.md"), "w") as f:
+        with open(error_log_path, "w") as f:
             f.write(f"# ❌ FFMPEG TRANSCODE FAILED\n\n```\n{ffmpeg_output}\n```\n")
         raise SystemExit("FFmpeg transcode failed")
-    with open(f"{p.parent}/{p.stem}--FFV1.mkv.md", "a") as f:
+    with open(transcode_log_path, "a") as f:
         f.write("FFmpeg output.\n")
         f.write(
-            f"```\n$ {FFMPEG_CMD} -hide_banner -nostats -i {p.name} -map 0 -dn -c:v ffv1 -level 3 -g 1 -slicecrc 1 -slices 4 -c:a flac -compression_level 12 {p.stem}--FFV1.mkv\n{ffmpeg_output}\n```\n\n"
+            f"```\n$ {FFMPEG_CMD} -hide_banner -nostats -i {p.name} -map 0 -dn -c:v ffv1 -level 3 -g 1 -slicecrc 1 -slices 4 -c:a flac -compression_level 12 {output_mkv_path.name}\n{ffmpeg_output}\n```\n\n"
         )
-    # calculate MD5 of *--FFV1.mkv file
-    print("\n⏳ calculating *--FFV1.mkv file MD5 in the background")
+    # calculate MD5 of transcoded MKV file
+    print(f"\n⏳ calculating {output_mkv_path.name} file MD5 in the background")
     calculating_md5_mkv_file = subprocess.Popen(
-        ["md5sum", f"{p.parent}/{p.stem}--FFV1.mkv"],
+        ["md5sum", output_mkv_path.as_posix()],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
     )
-    # calculate MD5 hashes of *--FFV1.mkv audio/video streams
+    # calculate MD5 hashes of transcoded MKV audio/video streams
     calculated_md5_mkv_streams = subprocess.run(
         [
             FFMPEG_CMD,
             "-i",
-            f"{p.parent}/{p.stem}--FFV1.mkv",
+            output_mkv_path.as_posix(),
             "-f",
             "streamhash",
             "-hash",
@@ -408,27 +462,27 @@ def main(p: Path, dst_dir: Path):
         capture_output=True,
         text=True,
     ).stdout.strip()
-    # wait for *--FFV1.mkv file MD5 calculation to complete
+    # wait for MKV file MD5 calculation to complete
     spinner = Spinner()
     spinner.start("🤼 WAITING FOR MD5 COMPARISON TO COMPLETE")
     calculated_md5_mkv_file = calculating_md5_mkv_file.communicate()[0].split()[0]
     spinner.stop()
-    with open(f"{p.parent}/{p.stem}--FFV1.mkv.md", "a") as f:
+    with open(transcode_log_path, "a") as f:
         f.write(
             "Calculated the MD5 checksum of the transcoded MKV file.\n\n"
         )
         f.write("Calculated MD5:\n")
-        f.write(f"```\n$ md5sum {p.parent}/{p.stem}--FFV1.mkv\n{calculated_md5_mkv_file}  {p.parent}/{p.stem}--FFV1.mkv\n```\n\n")
-    with open(f"{p.parent}/{p.stem}--FFV1.mkv.md5", "w") as f:
+        f.write(f"```\n$ md5sum {output_mkv_path}\n{calculated_md5_mkv_file}  {output_mkv_path}\n```\n\n")
+    with open(output_mkv_md5_path, "w") as f:
         f.write(calculated_md5_mkv_file)
     # wait for source streamhash MD5 calculation to complete
     spinner = Spinner()
     spinner.start("🤼 WAITING FOR MD5 COMPARISON TO COMPLETE")
     calculated_md5_source_streams = calculating_md5_source_streams.communicate()[0].strip()
     spinner.stop()
-    # compare MD5 hashes of source audio/video streams with MD5 hashes of *--FFV1.mkv audio/video streams
+    # compare MD5 hashes of source audio/video streams with MD5 hashes of transcoded MKV audio/video streams
     print(f"{p.name} (streams):\n{calculated_md5_source_streams}")
-    print(f"{p.stem}--FFV1.mkv (streams):\n{calculated_md5_mkv_streams}")
+    print(f"{output_mkv_path.name} (streams):\n{calculated_md5_mkv_streams}")
     source_hashes = parse_streamhash_lines(calculated_md5_source_streams)
     mkv_hashes = parse_streamhash_lines(calculated_md5_mkv_streams)
 
@@ -456,7 +510,7 @@ def main(p: Path, dst_dir: Path):
             print("❌ NON-AAC AUDIO STREAM MD5 MISMATCH")
             raise SystemExit("Non-AAC audio stream MD5 mismatch")
         print("✅ NON-AAC AUDIO STREAM MD5 MATCH")
-    with open(f"{p.parent}/{p.stem}--FFV1.mkv.md", "a") as f:
+    with open(transcode_log_path, "a") as f:
         f.write(
             "Compared the calculated MD5 stream hashes from the source file with those from the transcoded MKV file. Future stream hash calculations must use the same or a compatible version of FFmpeg, otherwise the output will differ.\n\n"
         )
@@ -466,8 +520,9 @@ def main(p: Path, dst_dir: Path):
         )
         f.write("MKV stream hashes:\n")
         f.write(
-            f"```\n$ {FFMPEG_CMD} -i {p.stem}--FFV1.mkv -f streamhash -hash md5 -\n{calculated_md5_mkv_streams}\n```\n\n"
+            f"```\n$ {FFMPEG_CMD} -i {output_mkv_path.name} -f streamhash -hash md5 -\n{calculated_md5_mkv_streams}\n```\n\n"
         )
+
     print("\n✅ DONE\n")
     return
 
@@ -520,33 +575,43 @@ if __name__ == "__main__":
     # SET GLOBAL VARIABLES
     FFMPEG_CMD = args.ffmpeg
     FFPROBE_CMD = args.ffprobe
-    BATCHES_DIRECTORY = Path(args.dst).joinpath(
+
+    # Process source media in place and write derivatives to a timestamped batch directory.
+    batches_directory = dst_path.joinpath(
         "BATCHES",
-        datetime.datetime.now()
-        .isoformat(sep="-", timespec="seconds")
-        .replace(":", "")
+        datetime.datetime.now().isoformat(sep="-", timespec="seconds").replace(":", "")
     )
-    BATCHES_DIRECTORY.mkdir(parents=True)
-    # MOVE SOURCE FILES TO BATCHES DIRECTORY
+    batches_directory.mkdir(parents=True)
+
     if args.level == "parent":
-        for src_item in Path(args.src).iterdir():
-            shutil.move(src_item.as_posix(), BATCHES_DIRECTORY.as_posix())
+        destination_root = batches_directory.joinpath(src_path.name)
+        if destination_root.exists():
+            print(f"❌ DESTINATION ALREADY EXISTS: {destination_root}")
+            exit(1)
+        destination_root.mkdir(parents=True)
+        source_video_root = src_path
     elif args.level == "object":
-        shutil.move(args.src, BATCHES_DIRECTORY.as_posix())
+        destination_root = batches_directory.joinpath(src_path.stem)
+        destination_root.mkdir(parents=True)
+        source_video_root = src_path.parent
     else:
-        print("❌ PROBLEM MOVING SOURCE FILES")
+        print("❌ PROBLEM PREPARING DESTINATION")
         exit(1)
+
     # Find all video files (common extensions)
     video_exts = VIDEO_EXTS.copy()
     if args.exclude:
         exclude_ext = args.exclude.lower().strip(".")
         video_exts = [ext for ext in video_exts if ext.lstrip(".") != exclude_ext]
-    video_paths = [p for ext in video_exts for p in BATCHES_DIRECTORY.glob(f"**/*{ext}")]
+    if args.level == "parent":
+        video_paths = [p for ext in video_exts for p in source_video_root.glob(f"**/*{ext}")]
+    else:
+        video_paths = [src_path] if src_path.suffix.lower() in video_exts else []
     failed_files = []
     if args.level == "parent":
         for p in sorted(video_paths, key=lambda x: x.stat().st_size):
             try:
-                main(p, dst_path)
+                main(p, source_video_root, destination_root)
             except SystemExit as e:
                 failed_files.append((p.name, str(e)))
             except Exception as e:
@@ -556,11 +621,14 @@ if __name__ == "__main__":
             for fname, reason in failed_files:
                 print(f"  {fname}: {reason}")
             sys.exit(1)
+        print("\n⏳ COPYING NON-PROCESSED FILES TO DESTINATION")
+        copy_remaining_files_after_transcode(source_video_root, destination_root, video_paths)
+        print("✅ COPIED NON-PROCESSED FILES")
     elif args.level == "object":
         if not video_paths:
             print("❌ NO VIDEO FILES FOUND TO PROCESS")
             sys.exit(1)
-        main(video_paths[0], dst_path)
+        main(video_paths[0], source_video_root, destination_root)
     else:
         print("❌ UNEXPECTED ERROR")
         exit(1)
