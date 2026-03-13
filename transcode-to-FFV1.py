@@ -1,5 +1,5 @@
 # transcode-to-FFV1.py
-# Version 1.7.0
+# Version 1.7.1
 
 import argparse
 import atexit
@@ -584,11 +584,7 @@ if __name__ == "__main__":
     batches_directory.mkdir(parents=True)
 
     if args.level == "parent":
-        destination_root = batches_directory.joinpath(src_path.name)
-        if destination_root.exists():
-            print(f"❌ DESTINATION ALREADY EXISTS: {destination_root}")
-            exit(1)
-        destination_root.mkdir(parents=True)
+        destination_root = batches_directory
         source_video_root = src_path
     elif args.level == "object":
         destination_root = batches_directory.joinpath(src_path.stem)
