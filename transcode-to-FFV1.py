@@ -1,5 +1,5 @@
 # transcode-to-FFV1.py
-# Version 1.7.1
+# Version 1.7.2
 
 import argparse
 import atexit
@@ -199,25 +199,27 @@ def build_destination_paths(source_video_path: Path, source_root: Path, destinat
     return output_mkv_path, output_mkv_md5_path, transcode_log_path
 
 
-def copy_remaining_files_after_transcode(source_root: Path, destination_root: Path, processed_video_paths):
-    processed_video_set = {p.resolve() for p in processed_video_paths}
-    processed_video_md5_set = {Path(f"{p.as_posix()}.md5").resolve() for p in processed_video_paths}
+def copy_item_siblings(processed_video_path: Path, source_root: Path, destination_root: Path):
+    source_item_dir = processed_video_path.parent
+    relative_item_dir = source_item_dir.relative_to(source_root)
+    destination_item_dir = destination_root.joinpath(relative_item_dir)
+    destination_item_dir.mkdir(parents=True, exist_ok=True)
 
-    for source_path in source_root.rglob("*"):
-        relative_path = source_path.relative_to(source_root)
-        destination_path = destination_root.joinpath(relative_path)
+    skip = {
+        processed_video_path.resolve(),
+        Path(f"{processed_video_path.as_posix()}.md5").resolve(),
+    }
 
-        if source_path.is_dir():
-            destination_path.mkdir(parents=True, exist_ok=True)
+    for source_path in source_item_dir.iterdir():
+        if source_path.resolve() in skip:
             continue
-
-        if source_path.resolve() in processed_video_set or source_path.resolve() in processed_video_md5_set:
-            continue
-
-        destination_path.parent.mkdir(parents=True, exist_ok=True)
+        destination_path = destination_item_dir.joinpath(source_path.name)
         if destination_path.exists():
             continue
-        shutil.copy2(source_path, destination_path)
+        if source_path.is_dir():
+            shutil.copytree(source_path, destination_path)
+        else:
+            shutil.copy2(source_path, destination_path)
 
 @auto_cleanup_processes
 def main(p: Path, source_root: Path, destination_root: Path):
@@ -608,6 +610,9 @@ if __name__ == "__main__":
         for p in sorted(video_paths, key=lambda x: x.stat().st_size):
             try:
                 main(p, source_video_root, destination_root)
+                print("⏳ COPYING ITEM FILES TO DESTINATION")
+                copy_item_siblings(p, source_video_root, destination_root)
+                print("✅ COPIED ITEM FILES")
             except SystemExit as e:
                 failed_files.append((p.name, str(e)))
             except Exception as e:
@@ -617,14 +622,14 @@ if __name__ == "__main__":
             for fname, reason in failed_files:
                 print(f"  {fname}: {reason}")
             sys.exit(1)
-        print("\n⏳ COPYING NON-PROCESSED FILES TO DESTINATION")
-        copy_remaining_files_after_transcode(source_video_root, destination_root, video_paths)
-        print("✅ COPIED NON-PROCESSED FILES")
     elif args.level == "object":
         if not video_paths:
             print("❌ NO VIDEO FILES FOUND TO PROCESS")
             sys.exit(1)
         main(video_paths[0], source_video_root, destination_root)
+        print("⏳ COPYING ITEM FILES TO DESTINATION")
+        copy_item_siblings(video_paths[0], source_video_root, destination_root)
+        print("✅ COPIED ITEM FILES")
     else:
         print("❌ UNEXPECTED ERROR")
         exit(1)
