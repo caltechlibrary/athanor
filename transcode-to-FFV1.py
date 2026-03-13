@@ -1,5 +1,5 @@
 # transcode-to-FFV1.py
-# Version 1.7.2
+# Version 1.7.3
 
 import argparse
 import atexit
@@ -341,7 +341,7 @@ def main(p: Path, source_root: Path, destination_root: Path):
     # calculate MD5 of source audio/video streams
     print("⏳ calculating source streamhash as MD5 in the background")
     calculating_md5_source_streams = subprocess.Popen(
-        [FFMPEG_CMD, "-i", p.as_posix(), "-f", "streamhash", "-hash", "md5", "-"],
+        [FFMPEG_CMD, "-i", p.as_posix(), "-map", "0", "-f", "streamhash", "-hash", "md5", "-"],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -455,6 +455,8 @@ def main(p: Path, source_root: Path, destination_root: Path):
             FFMPEG_CMD,
             "-i",
             output_mkv_path.as_posix(),
+            "-map",
+            "0",
             "-f",
             "streamhash",
             "-hash",
@@ -503,7 +505,14 @@ def main(p: Path, source_root: Path, destination_root: Path):
     else:
         if len(source_hashes["a"]) <= max(non_aac_audio_positions) or len(mkv_hashes["a"]) <= max(non_aac_audio_positions):
             print("❌ AUDIO STREAM HASH EXTRACTION FAILED")
-            raise SystemExit("Audio stream hash extraction failed")
+            print(f"Source audio codec count: {len(source_audio_codecs)}")
+            print(f"Source non-AAC positions: {non_aac_audio_positions}")
+            print(f"Source audio hash count: {len(source_hashes['a'])}")
+            print(f"MKV audio hash count: {len(mkv_hashes['a'])}")
+            print(f"Source codecs: {source_audio_codecs}")
+            print(f"Source hashes (a): {source_hashes['a']}")
+            print(f"MKV hashes (a): {mkv_hashes['a']}")
+            raise SystemExit("Audio stream hash extraction failed: streamhash output did not include all expected audio streams")
 
         source_non_aac_hashes = [source_hashes["a"][i] for i in non_aac_audio_positions]
         mkv_non_aac_hashes = [mkv_hashes["a"][i] for i in non_aac_audio_positions]
@@ -518,11 +527,11 @@ def main(p: Path, source_root: Path, destination_root: Path):
         )
         f.write("Source stream hashes:\n")
         f.write(
-            f"```\n$ {FFMPEG_CMD} -i {p.name} -f streamhash -hash md5 -\n{calculated_md5_source_streams}\n```\n\n"
+            f"```\n$ {FFMPEG_CMD} -i {p.name} -map 0 -f streamhash -hash md5 -\n{calculated_md5_source_streams}\n```\n\n"
         )
         f.write("MKV stream hashes:\n")
         f.write(
-            f"```\n$ {FFMPEG_CMD} -i {output_mkv_path.name} -f streamhash -hash md5 -\n{calculated_md5_mkv_streams}\n```\n\n"
+            f"```\n$ {FFMPEG_CMD} -i {output_mkv_path.name} -map 0 -f streamhash -hash md5 -\n{calculated_md5_mkv_streams}\n```\n\n"
         )
 
     print("\n✅ DONE\n")
