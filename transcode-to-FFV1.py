@@ -1,5 +1,5 @@
 # transcode-to-FFV1.py
-# Version 1.7.3
+# Version 1.7.4
 
 import argparse
 import atexit
@@ -341,7 +341,20 @@ def main(p: Path, source_root: Path, destination_root: Path):
     # calculate MD5 of source audio/video streams
     print("⏳ calculating source streamhash as MD5 in the background")
     calculating_md5_source_streams = subprocess.Popen(
-        [FFMPEG_CMD, "-i", p.as_posix(), "-map", "0", "-f", "streamhash", "-hash", "md5", "-"],
+        [
+            FFMPEG_CMD,
+            "-i",
+            p.as_posix(),
+            "-map",
+            "0:v",
+            "-map",
+            "0:a",
+            "-f",
+            "streamhash",
+            "-hash",
+            "md5",
+            "-",
+        ],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -456,7 +469,9 @@ def main(p: Path, source_root: Path, destination_root: Path):
             "-i",
             output_mkv_path.as_posix(),
             "-map",
-            "0",
+            "0:v",
+            "-map",
+            "0:a",
             "-f",
             "streamhash",
             "-hash",
@@ -465,7 +480,12 @@ def main(p: Path, source_root: Path, destination_root: Path):
         ],
         capture_output=True,
         text=True,
-    ).stdout.strip()
+    )
+    if calculated_md5_mkv_streams.returncode != 0:
+        print("❌ MKV STREAMHASH FAILED")
+        print(calculated_md5_mkv_streams.stderr)
+        raise SystemExit("MKV streamhash failed")
+    calculated_md5_mkv_streams = calculated_md5_mkv_streams.stdout.strip()
     # wait for MKV file MD5 calculation to complete
     spinner = Spinner()
     spinner.start("🤼 WAITING FOR MD5 COMPARISON TO COMPLETE")
@@ -482,8 +502,13 @@ def main(p: Path, source_root: Path, destination_root: Path):
     # wait for source streamhash MD5 calculation to complete
     spinner = Spinner()
     spinner.start("🤼 WAITING FOR MD5 COMPARISON TO COMPLETE")
-    calculated_md5_source_streams = calculating_md5_source_streams.communicate()[0].strip()
+    source_streamhash_stdout, source_streamhash_stderr = calculating_md5_source_streams.communicate()
     spinner.stop()
+    if calculating_md5_source_streams.returncode != 0:
+        print("❌ SOURCE STREAMHASH FAILED")
+        print(source_streamhash_stderr)
+        raise SystemExit("Source streamhash failed")
+    calculated_md5_source_streams = source_streamhash_stdout.strip()
     # compare MD5 hashes of source audio/video streams with MD5 hashes of transcoded MKV audio/video streams
     print(f"{p.name} (streams):\n{calculated_md5_source_streams}")
     print(f"{output_mkv_path.name} (streams):\n{calculated_md5_mkv_streams}")
@@ -527,11 +552,11 @@ def main(p: Path, source_root: Path, destination_root: Path):
         )
         f.write("Source stream hashes:\n")
         f.write(
-            f"```\n$ {FFMPEG_CMD} -i {p.name} -map 0 -f streamhash -hash md5 -\n{calculated_md5_source_streams}\n```\n\n"
+            f"```\n$ {FFMPEG_CMD} -i {p.name} -map 0:v -map 0:a -f streamhash -hash md5 -\n{calculated_md5_source_streams}\n```\n\n"
         )
         f.write("MKV stream hashes:\n")
         f.write(
-            f"```\n$ {FFMPEG_CMD} -i {output_mkv_path.name} -map 0 -f streamhash -hash md5 -\n{calculated_md5_mkv_streams}\n```\n\n"
+            f"```\n$ {FFMPEG_CMD} -i {output_mkv_path.name} -map 0:v -map 0:a -f streamhash -hash md5 -\n{calculated_md5_mkv_streams}\n```\n\n"
         )
 
     print("\n✅ DONE\n")
