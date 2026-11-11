@@ -19,7 +19,7 @@ formats and audio-only files are outside the current scope.
 
 ## What a run does
 
-For each source file, `transcode-to-FFV1.py`:
+For each source file, the `athanor` command:
 
 1. Reads the file’s streams and skips it unless its video is uncompressed
    or losslessly compressed.
@@ -41,19 +41,24 @@ For each source file, `transcode-to-FFV1.py`:
 Where the source leaves field order or color range unspecified, ffmpeg
 writes its own values into the MKV. The log marks these as ffmpeg’s labels.
 
+Run in a terminal, Athanor animates its progress messages. When its output
+goes to a log, such as in GitHub Actions, each message is printed once.
+
 ## Requirements
 
-- Python 3.9 or later; the script uses only the standard library.
+- Python 3.13 or later, managed with [uv](https://docs.astral.sh/uv/).
+  Athanor uses only the standard library.
 - ffmpeg and ffprobe with the FFV1 and FLAC encoders, such as Homebrew’s
   `ffmpeg-full`. Use one pinned ffmpeg version for a collection: stream
   hashes are comparable only between the same or compatible versions.
 
 ## Usage
 
-Transcode every eligible file below a directory of items:
+From a clone of this repository, transcode every eligible file below a
+directory of items:
 
 ```sh
-python3 transcode-to-FFV1.py --level parent \
+uv run athanor --level parent \
   --src /path/to/collection --dst /path/to/output \
   --ffmpeg /path/to/ffmpeg --ffprobe /path/to/ffprobe
 ```
@@ -65,22 +70,42 @@ Transcode one file with `--level object --src /path/to/file.mov`. The
 The exit status is 1 when any file fails or needs review; the summary at the
 end lists each one with its reason.
 
+To install the command from a release tag instead:
+
+```sh
+uv tool install git+https://github.com/caltechlibrary/athanor@v0.1.0
+```
+
+## Development
+
+```sh
+uv sync --dev
+uv run pytest
+```
+
+Record changes under “Unreleased” in [CHANGELOG.md](CHANGELOG.md). To
+release, move them under a new version heading, and set the same version in
+`pyproject.toml`; a push to `main` that changes the version tags the release.
+
 ## Direction
 
 - **Archivists start runs from GitHub.** They don’t work on the command
   line, so runs will start from GitHub Actions on a self-hosted runner, with
   the same validate, approve, and execute steps as Distillery Workflows.
-  Running the script by hand stays available for development and one-off
-  files.
+  Those workflows, the issue form, and the runner’s settings live in a
+  separate private repository, `athanor-workflows`. Running the command by
+  hand stays available for development and one-off files.
 - **A runner of its own.** A long transcode would otherwise hold the
   preservation runner for hours, so transcoding gets a separate runner
   label.
 - **Before Distillery writes a version.** OCFL versions are immutable, so
   the choice between keeping an original and replacing it with FFV1 has to
   be made before Distillery preserves the item.
-- **A package Distillery can call.** The script becomes an importable
-  package with a command-line entry point, the way
-  [arkminter](https://github.com/caltechlibrary/arkminter) is.
+- **A library Distillery can call.** Distillery will depend on Athanor at a
+  release tag, the way it depends on
+  [arkminter](https://github.com/caltechlibrary/arkminter), and call its
+  functions directly; the `athanor` command will become a thin layer over
+  them.
 - **Formats as needed.** Support for other source formats, keep-or-transcode
   decisions for lossy sources, audio, and access derivatives such as
   thumbnails is added when a collection calls for it, not ahead of time.
@@ -90,3 +115,7 @@ end lists each one with its reason.
 - Whether to correct ffmpeg’s field order and color range labels in the MKV
   to match the source, which needs MKVToolNix’s `mkvpropedit`.
 - Which ffmpeg version the runner pins, and how an upgrade is rolled out.
+
+## License
+
+BSD 3-Clause; see [LICENSE](LICENSE).

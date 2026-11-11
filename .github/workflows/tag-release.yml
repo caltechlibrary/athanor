@@ -1,0 +1,38 @@
+name: Tag Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Tag release if version changed
+        run: |
+          CURRENT=$(grep -m1 '^version = ' pyproject.toml | sed -E 's/version = "([^"]+)"/\1/')
+          BEFORE="${{ github.event.before }}"
+          if [ "$BEFORE" = "0000000000000000000000000000000000000000" ] || [ -z "$BEFORE" ]; then
+            PREVIOUS=""
+          else
+            PREVIOUS=$(git show "$BEFORE:pyproject.toml" 2>/dev/null | grep -m1 '^version = ' | sed -E 's/version = "([^"]+)"/\1/' || echo "")
+          fi
+          if [ "$CURRENT" = "$PREVIOUS" ]; then
+            echo "Version unchanged ($CURRENT); skipping tag."
+            exit 0
+          fi
+          TAG="v${CURRENT}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists; skipping."
+            exit 0
+          fi
+          git tag "$TAG"
+          git push origin "$TAG"
+          echo "Created and pushed tag $TAG"

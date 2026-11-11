@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "athanor"
+version = "0.1.0"
+description = "Convert digitized video to lossless FFV1/MKV and verify the result"
+readme = "README.md"
+license = "BSD-3-Clause"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Tommy Keswick" }
+]
+requires-python = ">=3.13"
+dependencies = []
+
+[project.scripts]
+athanor = "athanor.athanor:cli"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[dependency-groups]
+dev = [
+    "pytest",
+]

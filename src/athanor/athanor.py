@@ -1,11 +1,11 @@
-# transcode-to-FFV1.py
-# Version 1.8.0
+"""Athanor: convert digitized video to lossless FFV1/MKV and verify the result."""
 
 import argparse
 import atexit
 import concurrent.futures
 import datetime
 import hashlib
+import importlib.metadata
 import itertools
 import json
 import re
@@ -50,11 +50,22 @@ ZERO_TIMECODE = re.compile(r"^00[:;.]00[:;.]00[:;.]00$")
 FLAC_MAX_CHANNELS = 8
 FLAC_UNSUPPORTED_AUDIO_CODECS = re.compile(r"^pcm_(f\d+|s32|s64|u32)")
 
+# Default ffmpeg and ffprobe, from Linuxbrew; the command can point elsewhere.
+FFMPEG_CMD = "/home/linuxbrew/.linuxbrew/bin/ffmpeg"
+FFPROBE_CMD = "/home/linuxbrew/.linuxbrew/bin/ffprobe"
+
+
+def athanor_version() -> str:
+    try:
+        return importlib.metadata.version("athanor")
+    except importlib.metadata.PackageNotFoundError:
+        return "unknown"
+
 
 def restore_tty():
-    subprocess.run(['stty','sane'])
+    if sys.stdin.isatty():
+        subprocess.run(['stty','sane'])
 
-atexit.register(restore_tty)
 
 def auto_cleanup_processes(func):
     """Decorator that ensures subprocess cleanup on exit"""
@@ -101,6 +112,11 @@ def auto_cleanup_processes(func):
 
 
 class Spinner:
+    """Animate a waiting message in a terminal.
+
+    When output goes anywhere else, such as a GitHub Actions log, the message
+    is printed once instead, so the log isn't filled with carriage returns.
+    """
     # https://stackoverflow.com/a/57974583
 
     __default_spinner_symbols_list = ['.    ', '..   ', '...  ', '.... ', '.....', ' ....', '  ...', '   ..', '    .', '     ']
@@ -111,12 +127,16 @@ class Spinner:
         self.__spinner = itertools.cycle(spinner_symbols_list)
         self.__stop_event = False
         self.__thread = None
+        self.__animated = sys.stdout.isatty()
 
     def get_spin(self):
         return self.__spinner
 
     def start(self, spinner_message: str):
         self.__stop_event = False
+        if not self.__animated:
+            print(spinner_message, flush=True)
+            return
         time.sleep(0.3)
 
         def run_spinner(message):
@@ -131,6 +151,8 @@ class Spinner:
 
     def stop(self):
         self.__stop_event = True
+        if not self.__animated:
+            return
         if self.__screen_lock.is_set():
             self.__screen_lock.wait()
             self.__screen_lock.clear()
@@ -552,6 +574,7 @@ def main(p: Path, source_root: Path, destination_root: Path) -> Optional[str]:
         f.write(
             "# TRANSCODING LOG\n\nThese were the steps used to convert the source file to a lossless FFV1/MKV file.\n\n"
         )
+        f.write(f"Transcoded with Athanor {athanor_version()}.\n\n")
         f.write("## Source analysis\n\n")
         f.write("Streams in the source file:\n\n")
         for stream in source_probe.get("streams", []):
@@ -860,8 +883,16 @@ def is_source_video_md5(path, video_exts=VIDEO_EXTS):
     ext = stem.suffix.lower()
     return ext in video_exts
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Preservation Transcoder")
+def cli():
+    """Run the athanor command."""
+    global FFMPEG_CMD, FFPROBE_CMD
+    atexit.register(restore_tty)
+    # print each line as it happens, even when output goes to a log
+    sys.stdout.reconfigure(line_buffering=True)
+    parser = argparse.ArgumentParser(
+        prog="athanor", description="Convert digitized video to lossless FFV1/MKV and verify the result."
+    )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {athanor_version()}")
     parser.add_argument(
         "--level", choices=["parent", "object"], help="'parent' if src contains many items, 'object' if src is a direct path to one item", required=True
     )
@@ -871,8 +902,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--dst", help="path to the destination directory", required=True
     )
-    parser.add_argument('--ffmpeg', default='/home/linuxbrew/.linuxbrew/bin/ffmpeg', help='(optional) path to ffmpeg binary')
-    parser.add_argument('--ffprobe', default='/home/linuxbrew/.linuxbrew/bin/ffprobe', help='(optional) path to ffprobe binary')
+    parser.add_argument('--ffmpeg', default=FFMPEG_CMD, help='(optional) path to ffmpeg binary')
+    parser.add_argument('--ffprobe', default=FFPROBE_CMD, help='(optional) path to ffprobe binary')
     parser.add_argument('--exclude', help='file extension to exclude from processing (e.g. mp4)', default=None)
     args = parser.parse_args(args=None if sys.argv[1:] else ["--help"])
     src_path = Path(args.src)
@@ -882,19 +913,19 @@ if __name__ == "__main__":
     # VALIDATE ARGUMENTS
     if args.level == "parent" and (not src_path.exists() or not src_path.is_dir()):
         print("❌ INVALID SOURCE PATH")
-        exit(1)
+        sys.exit(1)
     if args.level == "object" and (not src_path.exists() or not src_path.is_file()):
         print("❌ INVALID SOURCE PATH")
-        exit(1)
+        sys.exit(1)
     if not dst_path.exists() or not dst_path.is_dir():
         print("❌ INVALID DESTINATION PATH")
-        exit(1)
+        sys.exit(1)
     if not ffmpeg_path.exists() or not ffmpeg_path.is_file():
         print("❌ INVALID FFMPEG PATH")
-        exit(1)
+        sys.exit(1)
     if not ffprobe_path.exists() or not ffprobe_path.is_file():
         print("❌ INVALID FFPROBE PATH")
-        exit(1)
+        sys.exit(1)
     # SET GLOBAL VARIABLES
     FFMPEG_CMD = args.ffmpeg
     FFPROBE_CMD = args.ffprobe
@@ -915,7 +946,7 @@ if __name__ == "__main__":
         source_video_root = src_path.parent
     else:
         print("❌ PROBLEM PREPARING DESTINATION")
-        exit(1)
+        sys.exit(1)
 
     # Find all video files (common extensions)
     video_exts = VIDEO_EXTS.copy()
@@ -963,4 +994,8 @@ if __name__ == "__main__":
         copy_siblings_of_transcoded(video_paths, source_video_root, destination_root)
     else:
         print("❌ UNEXPECTED ERROR")
-        exit(1)
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    cli()
